@@ -1,0 +1,41 @@
+agent_role: "HR-помощник"
+company_name: "Компания"
+vacancy_title: "Курьер"
+max_turns: 20
+
+questions:
+  - id: consent
+    text: "Разговор записывается для обработки вашего отклика. Вы согласны продолжить?"
+    type: confirm
+    required: true
+    on_reject: end_call
+
+  - id: experience
+    text: "Есть ли у вас опыт работы курьером или в доставке?"
+    type: open
+
+  - id: schedule
+    text: "Какой график работы вам удобен — полная занятость или подработка?"
+    type: choice
+    options: ["Полная занятость", "Подработка", "Любой"]
+
+  - id: transport
+    text: "Есть ли у вас свой транспорт — автомобиль, велосипед, самокат?"
+    type: open
+
+  - id: medical_book
+    text: "У вас есть действующая медицинская книжка?"
+    type: confirm
+
+  - id: start_date
+    text: "Когда вы готовы приступить к работе?"
+    type: open
+
+  - id: district
+    text: "В каком районе города вам удобно работать?"
+    type: open
+
+pass_criteria:
+  min_questions_answered: 5
+  required_positive:
+    - consent

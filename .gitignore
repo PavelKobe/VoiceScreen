@@ -1,0 +1,50 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Recordings (local test files)
+recordings/
+*.wav
+*.ogg
+*.mp3
+
+# Alembic
+alembic/versions/*.pyc
+
+# Node (for future frontend)
+node_modules/
+.next/
