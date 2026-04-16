@@ -6,7 +6,7 @@
 
 - `stt.py` — Yandex SpeechKit STT. Распознавание речи кандидата.
 - `tts.py` — Yandex SpeechKit TTS. Синтез голоса агента (голос `alena`).
-- `llm.py` — OpenAI GPT-4o-mini клиент. Генерация ответов агента.
+- `llm.py` — LLM клиент через OpenRouter (OpenAI-совместимый API). Модель настраивается в `.env`.
 - `scenario.py` — загрузчик YAML-сценариев из `scenarios/`, построение system prompt.
 - `dialog.py` — `DialogSession` — оркестратор одного разговора. Управляет очерёдностью, историей, завершением.
 - `prompts/` — шаблоны промптов (пока генерируются динамически в `scenario.py`).
@@ -20,7 +20,7 @@
 
 ## Поток данных одного звонка
 
-```
+```text
 Audio in -> stt.recognize_audio() -> text
 text + history -> llm.get_next_reply() -> reply text
 reply text -> tts.synthesize_speech() -> audio out

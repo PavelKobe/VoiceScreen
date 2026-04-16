@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     yandex_cloud_api_key: str = ""
     yandex_cloud_folder_id: str = ""
 
-    # LLM
-    openai_api_key: str = ""
-    yandex_gpt_api_key: str = ""
-    yandex_gpt_folder_id: str = ""
+    # LLM (OpenRouter)
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "google/gemini-2.5-flash-preview"
 
     # Telegram
     telegram_bot_token: str = ""
