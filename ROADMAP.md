@@ -25,11 +25,11 @@
 
 ## Фаза 1: Рабочий сквозной звонок (Неделя 2–3)
 
-- [ ] .env заполнен реальными ключами (Yandex, OpenAI, Mango, Telegram)
-- [ ] `make install` — зависимости установлены
-- [ ] `make db-up` — Postgres + Redis запущены
-- [ ] Первая Alembic миграция (autogenerate из моделей)
-- [ ] `make dev` — API стартует без ошибок
+- [ ] .env заполнен реальными ключами (Yandex, OpenAI, Mango, Telegram) — готовы OpenRouter + Telegram, ждут Yandex SpeechKit/S3 + Mango
+- [x] `make install` — зависимости установлены
+- [x] `make db-up` — Postgres + Redis запущены
+- [x] Первая Alembic миграция (autogenerate из моделей)
+- [x] `make dev` — API стартует без ошибок
 - [ ] Mango Media Stream — получение аудио-чанков через WebSocket
 - [ ] Audio pipeline: STT -> LLM -> TTS -> аудио обратно в звонок
 - [ ] Object Storage: загрузка записей в Yandex S3 с signed URLs
