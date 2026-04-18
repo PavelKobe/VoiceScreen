@@ -13,7 +13,7 @@
 - [x] SQLAlchemy модели: Client, Vacancy, Candidate, Call, CallTurn
 - [x] FastAPI — main.py + healthcheck + роутеры (candidates, calls, webhooks)
 - [x] Ядро: stt.py, tts.py, llm.py, scenario.py, dialog.py
-- [x] Mango Office API клиент (originate, hangup, verify)
+- [x] Mango Office API клиент (originate, hangup, verify) — будет заменён на Voximplant (см. Фазу 1)
 - [x] Celery + Redis — задачи (initiate_call, finalize_call, schedule_pending)
 - [x] Telegram-бот — скелет команд (/start, /register, /upload, /status, /report)
 - [x] YAML-сценарий: courier_screening.yaml (7 вопросов)
@@ -25,12 +25,13 @@
 
 ## Фаза 1: Рабочий сквозной звонок (Неделя 2–3)
 
-- [ ] .env заполнен реальными ключами (Yandex, OpenAI, Mango, Telegram) — готовы OpenRouter + Telegram, ждут Yandex SpeechKit/S3 + Mango
+- [ ] .env заполнен реальными ключами — готовы OpenRouter + Telegram + Yandex SpeechKit + Yandex S3; ждут Voximplant
+- [ ] Миграция телефонии Mango → Voximplant: переписать `app/telephony/mango.py` → `voximplant.py`, добавить `voxengine/screening.js`, обновить webhooks и Celery-таски
 - [x] `make install` — зависимости установлены
 - [x] `make db-up` — Postgres + Redis запущены
 - [x] Первая Alembic миграция (autogenerate из моделей)
 - [x] `make dev` — API стартует без ошибок
-- [ ] Mango Media Stream — получение аудио-чанков через WebSocket
+- [ ] Voximplant WebSocket — получение аудио-чанков из VoxEngine-сценария
 - [ ] Audio pipeline: STT -> LLM -> TTS -> аудио обратно в звонок
 - [ ] Object Storage: загрузка записей в Yandex S3 с signed URLs
 - [ ] `make test-call` — сквозной тестовый звонок работает
@@ -94,7 +95,7 @@
 - [ ] Политика обработки ПДн опубликована на сайте
 - [ ] Типовой договор поручения готов
 - [ ] Оферта опубликована
-- [ ] SIP-номер зарегистрирован на юрлицо (Mango Office)
+- [ ] Номер зарегистрирован на ИП (Voximplant)
 - [ ] Список из 30 компаний-кандидатов на пилот
 - [ ] 10 холодных сообщений HRD отправлено
 - [ ] 5 глубоких интервью с HR массового найма проведено
