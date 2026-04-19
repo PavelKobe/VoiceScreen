@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "debug"
+    # Public WS URL for VoxEngine to connect back to us (wss://host/api/v1/ws/call)
+    public_ws_url: str = ""
 
     model_config = {
         "env_file": ".env",

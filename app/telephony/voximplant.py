@@ -26,10 +26,13 @@ async def originate_call(to_number: str, custom_data: dict[str, Any] | None = No
     Returns Voximplant response (contains ``media_session_access_url`` /
     ``call_session_history_id`` — we store the latter as call id).
     """
-    script_custom_data = json.dumps(
-        {"to_number": to_number, **(custom_data or {})},
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {"to_number": to_number}
+    if settings.public_ws_url:
+        payload["ws_url"] = settings.public_ws_url
+    if settings.voximplant_from_number:
+        payload["from_number"] = settings.voximplant_from_number
+    payload.update(custom_data or {})
+    script_custom_data = json.dumps(payload, ensure_ascii=False)
     params = {
         "account_id": settings.voximplant_account_id,
         "api_key": settings.voximplant_api_key,
