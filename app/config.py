@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # LLM (OpenRouter)
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "google/gemini-2.5-flash-preview"
+    openrouter_model: str = "google/gemini-2.5-flash"
 
     # Telegram
     telegram_bot_token: str = ""
