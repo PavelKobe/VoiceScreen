@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-migrate dev worker bot test test-call format lint
+.PHONY: install db-up db-down db-migrate dev worker bot test test-call format lint sync
 
 install:
 	pip install -e ".[dev]"
@@ -15,6 +15,9 @@ db-migrate:
 
 db-revision:
 	alembic revision --autogenerate -m "$(msg)"
+
+sync:
+	bash scripts/sync_vm.sh
 
 dev:
 	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
