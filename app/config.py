@@ -20,10 +20,13 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
 
-    # Mango Office
-    mango_api_key: str = ""
-    mango_api_secret: str = ""
-    mango_from_number: str = ""
+    # Voximplant
+    voximplant_account_id: str = ""
+    voximplant_api_key: str = ""
+    voximplant_application_id: str = ""
+    voximplant_application_name: str = ""
+    voximplant_rule_id: str = ""
+    voximplant_from_number: str = ""
 
     # Yandex Object Storage
     yos_access_key: str = ""

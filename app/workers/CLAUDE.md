@@ -6,7 +6,7 @@
 
 - `celery_app.py` — конфигурация Celery (брокер Redis, timezone Moscow).
 - `tasks.py` — задачи:
-  - `initiate_call` — инициировать звонок кандидату через Mango.
+  - `initiate_call` — инициировать звонок кандидату через Voximplant.
   - `finalize_call` — после звонка: скачать запись, загрузить в S3, посчитать score, уведомить HR.
   - `schedule_pending_calls` — периодическая задача: найти ожидающих кандидатов, поставить в очередь с учётом таймзоны.
 

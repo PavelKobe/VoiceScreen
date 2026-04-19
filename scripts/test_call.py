@@ -21,7 +21,7 @@ async def run_test_call(phone: str, scenario: str) -> None:
     greeting = await session.get_greeting()
     log.info("agent_greeting", text=greeting)
 
-    # In a real test, this would go through Mango telephony.
+    # In a real test, this would go through Voximplant telephony.
     # For now, simulate a text-based conversation.
     test_responses = [
         "Да, согласен",

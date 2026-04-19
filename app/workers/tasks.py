@@ -12,7 +12,7 @@ def initiate_call(self, candidate_id: int, vacancy_id: int) -> dict:
     """Initiate a screening call to a candidate.
 
     1. Load candidate + vacancy from DB
-    2. Originate call via Mango
+    2. Originate call via Voximplant
     3. Create Call record in DB
     """
     log.info("task_initiate_call", candidate_id=candidate_id, vacancy_id=vacancy_id)
@@ -24,7 +24,7 @@ def initiate_call(self, candidate_id: int, vacancy_id: int) -> dict:
 def finalize_call(self, call_id: int) -> dict:
     """Finalize a completed call.
 
-    1. Download recording from Mango
+    1. Download recording from Voximplant
     2. Upload to Object Storage
     3. Calculate score from transcript
     4. Update Call record

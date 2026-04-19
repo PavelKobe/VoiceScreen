@@ -8,7 +8,7 @@
 - `config.py` — все настройки через `pydantic-settings`, читает `.env`
 - `api/` — HTTP-эндпоинты (REST)
 - `core/` — ядро: STT, TTS, LLM, оркестратор диалога
-- `telephony/` — интеграция с телефонией (Mango Office)
+- `telephony/` — интеграция с телефонией (Voximplant)
 - `db/` — SQLAlchemy модели и сессии
 - `workers/` — Celery-задачи для фоновой обработки
 - `bot/` — Telegram-бот для HR-клиентов

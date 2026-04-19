@@ -54,7 +54,7 @@ voicescreen/
 │   ├── api/                   # FastAPI роутеры
 │   │   ├── candidates.py      # загрузка CSV, получение кандидата
 │   │   ├── calls.py           # данные звонков, записи
-│   │   └── webhooks.py        # вебхуки от Mango
+│   │   └── webhooks.py        # вебхуки от Voximplant
 │   ├── core/                  # ядро диалога
 │   │   ├── CLAUDE.md          # контекст ядра
 │   │   ├── stt.py             # Yandex SpeechKit STT
