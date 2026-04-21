@@ -32,7 +32,7 @@ const toNumber      = data.to_number;
 const scenarioName  = data.scenario || "courier_screening";
 const candidateId   = data.candidate_id || null;
 const wsUrl         = data.ws_url;
-const callId        = data.call_id || VoxEngine.getSessionID();
+const callId        = data.call_id || VoxEngine.sessionId();
 
 if (!toNumber || !wsUrl) {
     Logger.write("VoiceScreen: missing to_number or ws_url, terminating");
