@@ -112,14 +112,14 @@ function onWsMessage(e) {
 function onAsrResult(e) {
     if (!e.text) return;
     Logger.write("VoiceScreen: ASR: " + e.text);
-    if (ws && ws.readyState === 1) {
+    if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "user_text", text: e.text }));
     }
 }
 
 function onCallDisconnected() {
     Logger.write("VoiceScreen: call disconnected");
-    if (ws && ws.readyState === 1) {
+    if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "call_ended", reason: "disconnected" }));
         ws.close();
     }
@@ -128,7 +128,7 @@ function onCallDisconnected() {
 
 function onCallFailed(e) {
     Logger.write("VoiceScreen: call failed code=" + e.code + " reason=" + e.reason);
-    if (ws && ws.readyState === 1) {
+    if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "call_ended", reason: "failed:" + e.code }));
         ws.close();
     }
