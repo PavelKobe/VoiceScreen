@@ -27,29 +27,30 @@
 require(Modules.WebSocket);
 require(Modules.ASR);
 
-const rawCustomData = VoxEngine.customData();
-Logger.write("VoiceScreen: raw customData type=" + typeof rawCustomData + " value=" + rawCustomData);
-const data = JSON.parse(rawCustomData || "{}");
-Logger.write("VoiceScreen: parsed keys=" + Object.keys(data).join(","));
-const toNumber      = data.to_number;
-const scenarioName  = data.scenario || "courier_screening";
-const candidateId   = data.candidate_id || null;
-const wsUrl         = data.ws_url;
-let callId          = data.call_id || null;
-
-if (!toNumber || !wsUrl) {
-    Logger.write("VoiceScreen: missing to_number or ws_url, terminating");
-    VoxEngine.terminate();
-}
-
+let data = {};
+let toNumber, scenarioName, candidateId, wsUrl, callId;
 let call = null;
 let ws = null;
 let asr = null;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
-    if (!callId) callId = e.sessionId;
-    call = VoxEngine.callPSTN(toNumber, data.from_number || undefined);
+    const raw = VoxEngine.customData();
+    Logger.write("VoiceScreen: raw customData=" + raw);
+    data = JSON.parse(raw || "{}");
 
+    toNumber     = data.to_number;
+    scenarioName = data.scenario || "courier_screening";
+    candidateId  = data.candidate_id || null;
+    wsUrl        = data.ws_url;
+    callId       = data.call_id || e.sessionId;
+
+    if (!toNumber || !wsUrl) {
+        Logger.write("VoiceScreen: missing to_number or ws_url, terminating");
+        VoxEngine.terminate();
+        return;
+    }
+
+    call = VoxEngine.callPSTN(toNumber, data.from_number || undefined);
     call.addEventListener(CallEvents.Connected, onCallConnected);
     call.addEventListener(CallEvents.Disconnected, onCallDisconnected);
     call.addEventListener(CallEvents.Failed, onCallFailed);
