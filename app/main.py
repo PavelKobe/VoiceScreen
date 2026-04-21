@@ -1,8 +1,13 @@
+import logging
+import sys
+
 import structlog
 from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.config import settings
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 
 structlog.configure(
     processors=[
