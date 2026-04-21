@@ -35,6 +35,15 @@ let ws = null;
 let asr = null;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
+    try {
+        Logger.write("VoiceScreen: VoiceList.Yandex keys = " + Object.keys(VoiceList.Yandex || {}).join(","));
+        if (VoiceList.Yandex && VoiceList.Yandex.v3) {
+            Logger.write("VoiceScreen: VoiceList.Yandex.v3 keys = " + Object.keys(VoiceList.Yandex.v3).join(","));
+        }
+    } catch (err) {
+        Logger.write("VoiceScreen: voicelist inspect failed: " + err);
+    }
+
     const raw = VoxEngine.customData();
     Logger.write("VoiceScreen: raw customData=" + raw);
     data = JSON.parse(raw || "{}");
