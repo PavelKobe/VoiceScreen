@@ -27,7 +27,10 @@
 require(Modules.WebSocket);
 require(Modules.ASR);
 
-const data = JSON.parse(VoxEngine.customData() || "{}");
+const rawCustomData = VoxEngine.customData();
+Logger.write("VoiceScreen: raw customData type=" + typeof rawCustomData + " value=" + rawCustomData);
+const data = JSON.parse(rawCustomData || "{}");
+Logger.write("VoiceScreen: parsed keys=" + Object.keys(data).join(","));
 const toNumber      = data.to_number;
 const scenarioName  = data.scenario || "courier_screening";
 const candidateId   = data.candidate_id || null;
