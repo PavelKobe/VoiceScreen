@@ -20,8 +20,9 @@
  *   5. Backend sends {"type":"say"} — we TTS it back into the call.
  *   6. Backend sends {"type":"hangup"} — we end the call.
  *
- * NOTE: TTS is done via Voximplant built-in Russian voice for MVP. Switching
- *       to our Yandex SpeechKit "alena" via streaming audio is a TODO.
+ * NOTE: TTS is done via Voximplant-managed Yandex SpeechKit voice "Alena"
+ *       (VoiceList.Yandex.Alena). Direct SpeechKit streaming via our own
+ *       credentials remains a future option if we hit Voximplant limits.
  */
 
 require(Modules.WebSocket);
@@ -102,7 +103,7 @@ function onWsMessage(e) {
         return;
     }
     if (msg.type === "say" && msg.text) {
-        call.say(msg.text, Language.RU_RUSSIAN_FEMALE);
+        call.say(msg.text, VoiceList.Yandex.Alena);
     } else if (msg.type === "hangup") {
         Logger.write("VoiceScreen: hangup requested by backend");
         call.hangup();
