@@ -112,7 +112,7 @@ function onWsMessage(e) {
         return;
     }
     if (msg.type === "say" && msg.text) {
-        call.say(msg.text, VoiceList.Yandex.ru_RU_jane);
+        call.say(msg.text, VoiceList.Yandex.Neural.ru_RU_alena);
     } else if (msg.type === "hangup") {
         Logger.write("VoiceScreen: hangup requested by backend");
         call.hangup();
