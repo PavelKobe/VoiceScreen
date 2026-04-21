@@ -37,8 +37,8 @@ let asr = null;
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
     try {
         Logger.write("VoiceScreen: VoiceList.Yandex keys = " + Object.keys(VoiceList.Yandex || {}).join(","));
-        if (VoiceList.Yandex && VoiceList.Yandex.v3) {
-            Logger.write("VoiceScreen: VoiceList.Yandex.v3 keys = " + Object.keys(VoiceList.Yandex.v3).join(","));
+        if (VoiceList.Yandex && VoiceList.Yandex.Neural) {
+            Logger.write("VoiceScreen: VoiceList.Yandex.Neural keys = " + Object.keys(VoiceList.Yandex.Neural).join(","));
         }
     } catch (err) {
         Logger.write("VoiceScreen: voicelist inspect failed: " + err);
@@ -112,7 +112,7 @@ function onWsMessage(e) {
         return;
     }
     if (msg.type === "say" && msg.text) {
-        call.say(msg.text, VoiceList.Yandex.Alena);
+        call.say(msg.text, VoiceList.Yandex.ru_RU_jane);
     } else if (msg.type === "hangup") {
         Logger.write("VoiceScreen: hangup requested by backend");
         call.hangup();
