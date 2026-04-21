@@ -32,7 +32,7 @@ const toNumber      = data.to_number;
 const scenarioName  = data.scenario || "courier_screening";
 const candidateId   = data.candidate_id || null;
 const wsUrl         = data.ws_url;
-const callId        = data.call_id || VoxEngine.sessionId();
+let callId          = data.call_id || null;
 
 if (!toNumber || !wsUrl) {
     Logger.write("VoiceScreen: missing to_number or ws_url, terminating");
@@ -43,7 +43,8 @@ let call = null;
 let ws = null;
 let asr = null;
 
-VoxEngine.addEventListener(AppEvents.Started, () => {
+VoxEngine.addEventListener(AppEvents.Started, (e) => {
+    if (!callId) callId = e.sessionId;
     call = VoxEngine.callPSTN(toNumber, data.from_number || undefined);
 
     call.addEventListener(CallEvents.Connected, onCallConnected);
