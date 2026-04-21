@@ -69,8 +69,20 @@ function onCallConnected() {
         profile: ASRProfileList.Yandex.ru_RU,
         singleUtterance: false,
     });
-    call.sendMediaTo(asr);
+    VoxEngine.sendMediaBetween(call, asr);
     asr.addEventListener(ASREvents.Result, onAsrResult);
+    asr.addEventListener(ASREvents.InterimResult, (e) => {
+        Logger.write("VoiceScreen: ASR interim: " + (e.text || ""));
+    });
+    asr.addEventListener(ASREvents.CaptureStarted, () => {
+        Logger.write("VoiceScreen: ASR CaptureStarted");
+    });
+    asr.addEventListener(ASREvents.SpeechCaptured, () => {
+        Logger.write("VoiceScreen: ASR SpeechCaptured");
+    });
+    asr.addEventListener(ASREvents.ASRError, (e) => {
+        Logger.write("VoiceScreen: ASR ERROR: " + JSON.stringify(e));
+    });
 }
 
 function onWsOpen() {
