@@ -1,23 +1,45 @@
-"""Celery tasks for call processing."""
+"""Celery tasks for call processing.
+
+Each task creates a fresh SQLAlchemy async engine — переиспользовать
+глобальный engine из app.db.session нельзя: Celery запускает async-код
+через asyncio.run() в новом event loop'е на каждый таск, а asyncpg
+connection-pool привязан к предыдущему loop'у и падает с
+"another operation is in progress".
+"""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.db.models import Call, Candidate, Vacancy
-from app.db.session import async_session
 from app.telephony.voximplant import get_record_url, originate_call
 from app.workers.celery_app import celery_app
 
 log = structlog.get_logger()
 
 
+@asynccontextmanager
+async def _task_session() -> AsyncIterator[AsyncSession]:
+    """Per-task engine — избегаем cross-loop pool re-use."""
+    engine = create_async_engine(settings.database_url, echo=False)
+    try:
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 async def _initiate_call_async(candidate_id: int) -> dict:
-    async with async_session() as db:
+    async with _task_session() as db:
         result = await db.execute(
             select(Candidate)
             .options(selectinload(Candidate.vacancy))
@@ -73,7 +95,7 @@ def finalize_call(self, call_id: int) -> dict:
 
 
 async def _fetch_recording_async(call_db_id: int) -> str | None:
-    async with async_session() as db:
+    async with _task_session() as db:
         call = await db.get(Call, call_db_id)
         if call is None or not call.voximplant_call_id:
             return None
@@ -83,7 +105,7 @@ async def _fetch_recording_async(call_db_id: int) -> str | None:
     if not url:
         return None
 
-    async with async_session() as db:
+    async with _task_session() as db:
         call = await db.get(Call, call_db_id)
         if call is None:
             return None
