@@ -189,6 +189,11 @@ async def call_ws(ws: WebSocket) -> None:
                 )
             except Exception as exc:
                 log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
+            try:
+                from app.workers.tasks import fetch_recording
+                fetch_recording.apply_async(args=[db_call_id], countdown=30)
+            except Exception as exc:
+                log.exception("ws_enqueue_fetch_recording_failed", call_id=call_id, error=str(exc))
         if session is not None:
             log.info(
                 "ws_session_closed",

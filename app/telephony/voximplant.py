@@ -63,6 +63,33 @@ async def originate_call(to_number: str, custom_data: dict[str, Any] | None = No
     return result
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=5))
+async def get_record_url(call_session_history_id: str) -> str | None:
+    """Fetch recording URL for a completed VoxEngine session.
+
+    Calls GetCallHistory with with_records=1. Returns the first record_url
+    found or None if the session has no recordings yet / ever.
+    """
+    params = {
+        "account_id": settings.voximplant_account_id,
+        "api_key": settings.voximplant_api_key,
+        "call_session_history_id": call_session_history_id,
+        "with_records": "1",
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{VOXIMPLANT_API_BASE}/GetCallHistory/", params=params
+        )
+        response.raise_for_status()
+        data = response.json()
+    for item in data.get("result", []):
+        for rec in item.get("records", []) or []:
+            url = rec.get("record_url")
+            if url:
+                return url
+    return None
+
+
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=5))
 async def hangup_call(call_session_history_id: str) -> None:
     """Stop an active VoxEngine session.

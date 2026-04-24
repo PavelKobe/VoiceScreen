@@ -8,9 +8,9 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Candidate, Vacancy
+from app.db.models import Call, Candidate, Vacancy
 from app.db.session import async_session
-from app.telephony.voximplant import originate_call
+from app.telephony.voximplant import get_record_url, originate_call
 from app.workers.celery_app import celery_app
 
 log = structlog.get_logger()
@@ -64,12 +64,53 @@ def initiate_call(self, candidate_id: int) -> dict:
 def finalize_call(self, call_id: int) -> dict:
     """Finalize a completed call.
 
-    TODO: download recording from Voximplant, upload to Object Storage,
-    notify client via Telegram. Score + transcript already persisted
-    from ws.py on call end.
+    TODO: upload recording to Object Storage, notify client via Telegram.
+    Score + transcript уже персистятся в ws.py, recording_url
+    подтягивается отдельным таском fetch_recording.
     """
     log.info("task_finalize_call", call_id=call_id)
     return {"call_id": call_id, "status": "noop"}
+
+
+async def _fetch_recording_async(call_db_id: int) -> str | None:
+    async with async_session() as db:
+        call = await db.get(Call, call_db_id)
+        if call is None or not call.voximplant_call_id:
+            return None
+        vox_id = call.voximplant_call_id
+
+    url = await get_record_url(vox_id)
+    if not url:
+        return None
+
+    async with async_session() as db:
+        call = await db.get(Call, call_db_id)
+        if call is None:
+            return None
+        call.recording_url = url
+        await db.commit()
+    return url
+
+
+@celery_app.task(bind=True, max_retries=6, default_retry_delay=60)
+def fetch_recording(self, call_db_id: int) -> dict:
+    """Pull Voximplant record_url for a completed call and store it.
+
+    Recordings are not instantly available after hangup — Voximplant
+    нужно время для обработки. Retry с задержкой: 6 попыток × 60 сек
+    ≈ 6 минут окно ожидания.
+    """
+    log.info("task_fetch_recording", call_db_id=call_db_id, attempt=self.request.retries + 1)
+    try:
+        url = asyncio.run(_fetch_recording_async(call_db_id))
+    except Exception as exc:
+        log.exception("task_fetch_recording_error", call_db_id=call_db_id, error=str(exc))
+        raise self.retry(exc=exc)
+    if url is None:
+        log.info("task_fetch_recording_not_ready", call_db_id=call_db_id)
+        raise self.retry()
+    log.info("task_fetch_recording_saved", call_db_id=call_db_id, url=url)
+    return {"call_db_id": call_db_id, "recording_url": url}
 
 
 @celery_app.task
