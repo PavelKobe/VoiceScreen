@@ -35,18 +35,7 @@ let ws = null;
 let asr = null;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
-    try {
-        Logger.write("VoiceScreen: VoiceList.Yandex keys = " + Object.keys(VoiceList.Yandex || {}).join(","));
-        if (VoiceList.Yandex && VoiceList.Yandex.Neural) {
-            Logger.write("VoiceScreen: VoiceList.Yandex.Neural keys = " + Object.keys(VoiceList.Yandex.Neural).join(","));
-        }
-    } catch (err) {
-        Logger.write("VoiceScreen: voicelist inspect failed: " + err);
-    }
-
-    const raw = VoxEngine.customData();
-    Logger.write("VoiceScreen: raw customData=" + raw);
-    data = JSON.parse(raw || "{}");
+    data = JSON.parse(VoxEngine.customData() || "{}");
 
     toNumber     = data.to_number;
     scenarioName = data.scenario || "courier_screening";
@@ -81,12 +70,6 @@ function onCallConnected() {
     });
     VoxEngine.sendMediaBetween(call, asr);
     asr.addEventListener(ASREvents.Result, onAsrResult);
-    asr.addEventListener(ASREvents.CaptureStarted, () => {
-        Logger.write("VoiceScreen: ASR CaptureStarted");
-    });
-    asr.addEventListener(ASREvents.SpeechCaptured, () => {
-        Logger.write("VoiceScreen: ASR SpeechCaptured");
-    });
     asr.addEventListener(ASREvents.ASRError, (e) => {
         Logger.write("VoiceScreen: ASR ERROR: " + JSON.stringify(e));
     });
@@ -119,7 +102,6 @@ function onWsMessage(e) {
 
 function onAsrResult(e) {
     if (!e.text) return;
-    Logger.write("VoiceScreen: ASR: " + e.text);
     if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "user_text", text: e.text }));
     }
