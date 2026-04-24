@@ -58,6 +58,10 @@ VoxEngine.addEventListener(AppEvents.Started, (e) => {
 function onCallConnected() {
     Logger.write("VoiceScreen: call connected, opening WS");
 
+    try { call.record(); } catch (err) {
+        Logger.write("VoiceScreen: record() failed: " + err);
+    }
+
     ws = VoxEngine.createWebSocket(wsUrl);
     ws.addEventListener(WebSocketEvents.OPEN,    onWsOpen);
     ws.addEventListener(WebSocketEvents.MESSAGE, onWsMessage);
