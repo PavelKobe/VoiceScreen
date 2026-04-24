@@ -24,6 +24,7 @@ from datetime import datetime
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.config import settings
 from app.core.dialog import DialogSession
 from app.core.scoring import score_call
 from app.db.models import Call, CallTurn, Candidate
@@ -102,6 +103,12 @@ async def call_ws(ws: WebSocket) -> None:
 
             if mtype == "start":
                 call_id = msg.get("call_id")
+                if settings.ws_auth_token:
+                    provided = msg.get("ws_auth_token", "")
+                    if provided != settings.ws_auth_token:
+                        log.warning("ws_auth_rejected", call_id=call_id)
+                        await ws.close(code=4401)
+                        return
                 scenario = msg.get("scenario", "courier_screening")
                 candidate_id = msg.get("candidate_id")
                 log.info("ws_call_start", call_id=call_id, scenario=scenario, candidate_id=candidate_id)

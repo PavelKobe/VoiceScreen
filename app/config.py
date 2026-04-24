@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     log_level: str = "debug"
     # Public WS URL for VoxEngine to connect back to us (wss://host/api/v1/ws/call)
     public_ws_url: str = ""
+    # Shared secret used by VoxEngine → backend to authorize the WS session.
+    # Empty value disables auth (for local dev only).
+    ws_auth_token: str = ""
 
     model_config = {
         "env_file": ".env",

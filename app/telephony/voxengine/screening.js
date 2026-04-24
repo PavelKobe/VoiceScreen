@@ -99,6 +99,7 @@ function onWsOpen() {
         candidate_id: candidateId,
         scenario: scenarioName,
         to_number: toNumber,
+        ws_auth_token: data.ws_auth_token || "",
     }));
 }
 

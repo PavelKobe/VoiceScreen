@@ -31,6 +31,8 @@ async def originate_call(to_number: str, custom_data: dict[str, Any] | None = No
         payload["ws_url"] = settings.public_ws_url
     if settings.voximplant_from_number:
         payload["from_number"] = settings.voximplant_from_number
+    if settings.ws_auth_token:
+        payload["ws_auth_token"] = settings.ws_auth_token
     payload.update(custom_data or {})
     script_custom_data = json.dumps(payload, ensure_ascii=False)
     params = {
