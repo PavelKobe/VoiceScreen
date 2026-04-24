@@ -75,18 +75,9 @@ function onCallConnected() {
     ws.addEventListener(WebSocketEvents.CLOSE,   onWsClose);
     ws.addEventListener(WebSocketEvents.ERROR,   onWsError);
 
-    // ASR создаётся после каждого PlaybackFinished, чтобы не ловить эхо TTS
-    // и использовать singleUtterance для быстрого endpointer.
-    call.addEventListener(CallEvents.PlaybackFinished, onPlaybackFinished);
-}
-
-function startAsr() {
-    if (asr) {
-        try { asr.stop(); } catch (_) {}
-    }
     asr = VoxEngine.createASR({
         profile: ASRProfileList.Yandex.ru_RU,
-        singleUtterance: true,
+        singleUtterance: false,
     });
     VoxEngine.sendMediaBetween(call, asr);
     asr.addEventListener(ASREvents.Result, onAsrResult);
@@ -99,11 +90,6 @@ function startAsr() {
     asr.addEventListener(ASREvents.ASRError, (e) => {
         Logger.write("VoiceScreen: ASR ERROR: " + JSON.stringify(e));
     });
-}
-
-function onPlaybackFinished() {
-    Logger.write("VoiceScreen: playback finished, starting ASR");
-    startAsr();
 }
 
 function onWsOpen() {
