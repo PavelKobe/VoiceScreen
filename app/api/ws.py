@@ -25,6 +25,7 @@ import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.dialog import DialogSession
+from app.core.scoring import score_call
 from app.db.models import Call, CallTurn, Candidate
 from app.db.session import async_session
 
@@ -58,7 +59,12 @@ async def _append_turn(db_call_id: int, speaker: str, text: str, order: int) -> 
         await db.commit()
 
 
-async def _finalize_call(db_call_id: int, transcript: str) -> None:
+async def _finalize_call(
+    db_call_id: int,
+    transcript: str,
+    score: float | None = None,
+    decision: str | None = None,
+) -> None:
     async with async_session() as db:
         call = await db.get(Call, db_call_id)
         if call is None:
@@ -68,6 +74,10 @@ async def _finalize_call(db_call_id: int, transcript: str) -> None:
         if call.started_at:
             call.duration = int((now - call.started_at).total_seconds())
         call.transcript = transcript
+        if score is not None:
+            call.score = score
+        if decision is not None:
+            call.decision = decision
         await db.commit()
 
 
@@ -137,8 +147,21 @@ async def call_ws(ws: WebSocket) -> None:
         log.exception("ws_error", call_id=call_id, error=str(exc))
     finally:
         if session is not None and db_call_id is not None:
+            transcript_text = _format_transcript(session.get_transcript())
+            score: float | None = None
+            decision: str | None = None
             try:
-                await _finalize_call(db_call_id, _format_transcript(session.get_transcript()))
+                result = await score_call(session.scenario, session.get_transcript())
+                raw_score = result.get("score")
+                if isinstance(raw_score, (int, float)):
+                    score = float(raw_score)
+                raw_decision = result.get("decision")
+                if isinstance(raw_decision, str):
+                    decision = raw_decision
+            except Exception as exc:
+                log.exception("ws_scoring_failed", call_id=call_id, error=str(exc))
+            try:
+                await _finalize_call(db_call_id, transcript_text, score=score, decision=decision)
             except Exception as exc:
                 log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
         if session is not None:
