@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
@@ -74,6 +75,8 @@ class Call(Base):
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     decision: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    score_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     voximplant_call_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
