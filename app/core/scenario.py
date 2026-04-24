@@ -27,9 +27,16 @@ def build_system_prompt(scenario: dict) -> str:
     vacancy = scenario.get("vacancy_title", "вакансия")
     questions = scenario.get("questions", [])
 
-    questions_text = "\n".join(
-        f"{i+1}. {q['text']}" for i, q in enumerate(questions)
-    )
+    def _fmt_question(i: int, q: dict) -> str:
+        line = f"{i+1}. {q['text']}"
+        qtype = q.get("type")
+        if qtype == "confirm":
+            line += " (ожидается ответ да/нет)"
+        elif qtype == "choice" and q.get("options"):
+            line += f" (варианты: {', '.join(q['options'])})"
+        return line
+
+    questions_text = "\n".join(_fmt_question(i, q) for i, q in enumerate(questions))
 
     return f"""Ты — {role} компании «{company}». Проводишь телефонный скрининг на позицию «{vacancy}».
 

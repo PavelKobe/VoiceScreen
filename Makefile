@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-migrate dev worker bot test test-call format lint sync
+.PHONY: install db-up db-down db-migrate dev worker bot test simulate-dialog format lint sync
 
 install:
 	pip install -e ".[dev]"
@@ -31,8 +31,8 @@ bot:
 test:
 	pytest -v
 
-test-call:
-	python scripts/test_call.py --phone=$(PHONE) --scenario=$(SCENARIO)
+simulate-dialog:
+	python scripts/simulate_dialog.py --phone=$(PHONE) --scenario=$(SCENARIO)
 
 format:
 	ruff check --fix .
