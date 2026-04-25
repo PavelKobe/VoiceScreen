@@ -25,26 +25,29 @@
 
 ## Фаза 1: Рабочий сквозной звонок (Неделя 2–3)
 
-- [ ] .env заполнен реальными ключами — готовы OpenRouter + Telegram + Yandex SpeechKit + Yandex S3; ждут Voximplant
-- [ ] Миграция телефонии Mango → Voximplant: переписать `app/telephony/mango.py` → `voximplant.py`, добавить `voxengine/screening.js`, обновить webhooks и Celery-таски
+- [x] .env заполнен реальными ключами — OpenRouter, Yandex SpeechKit, Voximplant, Yandex S3 (ключи готовы; Telegram отложен из-за блока YC→api.telegram.org)
+- [x] Миграция телефонии Mango → Voximplant: `voximplant.py`, `voxengine/screening.js`, webhooks и Celery-таски обновлены (b1c3d4e5f601)
 - [x] `make install` — зависимости установлены
 - [x] `make db-up` — Postgres + Redis запущены
 - [x] Первая Alembic миграция (autogenerate из моделей)
 - [x] `make dev` — API стартует без ошибок
-- [ ] Voximplant WebSocket — получение аудио-чанков из VoxEngine-сценария
-- [ ] Audio pipeline: STT -> LLM -> TTS -> аудио обратно в звонок
-- [ ] Object Storage: загрузка записей в Yandex S3 с signed URLs
-- [ ] `make test-call` — сквозной тестовый звонок работает
-- [ ] Логирование call_turns в БД по ходу диалога (не в конце)
+- [x] Voximplant WebSocket — VoxEngine открывает WS к `/api/v1/ws/call`, протокол start/user_text/say/hangup работает
+- [x] Audio pipeline: ASR в VoxEngine → текст → LLM → TTS Yandex Alena (через VoxEngine `call.say`) — сквозняк работает
+- [ ] Object Storage: загрузка записей в Yandex S3 с signed URLs (сейчас храним Voximplant signed URL)
+- [x] Сквозной тестовый звонок — реальный live-call 2026-04-25 через `/upload?start=true` отработал end-to-end
+- [x] Логирование call_turns в БД по ходу диалога (не в конце) — `_append_turn` пишется на каждый turn в `ws.py`
 
 ---
 
 ## Фаза 2: Пилотная готовность (Неделя 3–4)
 
-- [ ] Telegram-бот: `/register` — создание Client в БД
-- [ ] Telegram-бот: `/upload` — парсинг CSV, создание Candidate записей
+- [x] HTTP API `/candidates/upload` — bulk-загрузка xlsx/csv с auth по `X-API-Key`, нормализацией телефона, дедупом и опциональным авто-обзвоном (`?start=true`). Прогнан live-test 2026-04-25.
+- [x] X-API-Key auth + tenant-scoping на `/calls` и `/candidates` через JOIN на `Vacancy.client_id`.
+- [ ] Минимальный CRUD: `POST /clients` (генерит api_key), `POST /vacancies` — чтобы перестать создавать через psql.
+- [ ] Telegram-бот: `/register` — создание Client в БД (заблокирован YC→api.telegram.org, обход не выбран)
+- [ ] Telegram-бот: `/upload` — парсинг CSV, создание Candidate записей (та же блокировка)
 - [ ] Telegram-бот: уведомления о прошедших скрининг (автоматом после finalize_call)
-- [ ] `finalize_call` task: скачать запись, score, уведомить HR
+- [ ] `finalize_call` task: скачать запись в S3, уведомить HR (scoring + recording_url уже работают отдельно)
 - [ ] Таймзоны: учёт часового пояса кандидата в schedule_pending_calls
 - [ ] Rate-limit: max 3 попытки, 9:00–21:00 по местному времени
 - [ ] Автодозвон: повторный звонок при занято/недоступно
