@@ -26,6 +26,7 @@ class Client(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     tg_chat_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    api_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     tariff: Mapped[str] = mapped_column(String(50), default="start")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
