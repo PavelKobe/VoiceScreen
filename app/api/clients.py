@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
@@ -58,3 +60,34 @@ async def create_client(
 
     log.info("client_created", client_id=client.id, name=client.name, tariff=client.tariff)
     return ClientCreated(id=client.id, name=client.name, tariff=client.tariff, api_key=api_key)
+
+
+class ClientOut(BaseModel):
+    id: int
+    name: str
+    tariff: str
+    active: bool
+    created_at: datetime
+
+
+@router.get(
+    "",
+    response_model=list[ClientOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_clients(
+    limit: int = Query(default=100, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+) -> list[ClientOut]:
+    result = await session.execute(select(Client).order_by(Client.id.desc()).limit(limit))
+    clients = result.scalars().all()
+    return [
+        ClientOut(
+            id=c.id,
+            name=c.name,
+            tariff=c.tariff,
+            active=c.active,
+            created_at=c.created_at,
+        )
+        for c in clients
+    ]
