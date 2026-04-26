@@ -307,15 +307,18 @@ curl -X PATCH https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID \
 
 ### Шаг 9. Отчёт по вакансии
 
-⚠️ Отдельной ручки `/vacancies/{id}/report` пока нет — пункт 6 в `project_pilot_prep_priority`. Сейчас агрегацию руками:
-
 ```bash
-docker compose exec postgres psql -U voicescreen -d voicescreen -c \
-  "SELECT decision, COUNT(*), AVG(score)::numeric(4,2) AS avg_score \
-   FROM calls c JOIN candidates cand ON c.candidate_id=cand.id \
-   WHERE cand.vacancy_id=$VACANCY_ID AND c.score IS NOT NULL \
-   GROUP BY decision;"
+curl https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID/report \
+  -H "X-API-Key: $CLIENT_API_KEY"
+# → {
+#   "vacancy_id": ..., "title": ...,
+#   "candidates_total": ..., "calls_total": ..., "calls_with_score": ...,
+#   "by_decision": {"pass": N, "review": N, "reject": N},
+#   "avg_score": 6.34
+# }
 ```
+
+`calls_total` — звонки с `finished_at`; `calls_with_score` — из них прошедшие LLM-оценку. `avg_score` усредняется только по scored. Если ни одного звонка ещё не было — `avg_score: null`, `by_decision: {}`.
 
 ### Чек-лист (распечатать перед запуском пилота)
 

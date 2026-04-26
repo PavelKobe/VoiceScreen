@@ -7,12 +7,12 @@ from datetime import datetime
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_client
 from app.core.scenario import available_scenarios
-from app.db.models import Client, Vacancy
+from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
 
 router = APIRouter()
@@ -193,3 +193,76 @@ async def deactivate_vacancy(
         log.info("vacancy_deactivated", client_id=client.id, vacancy_id=vacancy.id)
 
     return Response(status_code=204)
+
+
+class VacancyReport(BaseModel):
+    vacancy_id: int
+    title: str
+    candidates_total: int
+    calls_total: int           # звонки с finished_at
+    calls_with_score: int      # из них с проставленным score
+    by_decision: dict[str, int]
+    avg_score: float | None    # усреднение по calls_with_score, либо null
+
+
+@router.get("/{vacancy_id}/report", response_model=VacancyReport)
+async def vacancy_report(
+    vacancy_id: int,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+) -> VacancyReport:
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    candidates_total = (
+        await session.execute(
+            select(func.count(Candidate.id)).where(Candidate.vacancy_id == vacancy_id)
+        )
+    ).scalar_one()
+
+    calls_q = (
+        select(Call)
+        .join(Candidate, Call.candidate_id == Candidate.id)
+        .where(Candidate.vacancy_id == vacancy_id)
+    )
+
+    calls_total = (
+        await session.execute(
+            select(func.count()).select_from(calls_q.where(Call.finished_at.is_not(None)).subquery())
+        )
+    ).scalar_one()
+
+    scored_q = calls_q.where(Call.score.is_not(None))
+    calls_with_score = (
+        await session.execute(select(func.count()).select_from(scored_q.subquery()))
+    ).scalar_one()
+
+    avg_score_raw = (
+        await session.execute(
+            select(func.avg(Call.score))
+            .join(Candidate, Call.candidate_id == Candidate.id)
+            .where(Candidate.vacancy_id == vacancy_id, Call.score.is_not(None))
+        )
+    ).scalar_one()
+    avg_score = round(float(avg_score_raw), 2) if avg_score_raw is not None else None
+
+    decision_rows = (
+        await session.execute(
+            select(Call.decision, func.count())
+            .join(Candidate, Call.candidate_id == Candidate.id)
+            .where(Candidate.vacancy_id == vacancy_id, Call.decision.is_not(None))
+            .group_by(Call.decision)
+        )
+    ).all()
+    by_decision = {decision: count for decision, count in decision_rows}
+
+    return VacancyReport(
+        vacancy_id=vacancy.id,
+        title=vacancy.title,
+        candidates_total=candidates_total,
+        calls_total=calls_total,
+        calls_with_score=calls_with_score,
+        by_decision=by_decision,
+        avg_score=avg_score,
+    )
