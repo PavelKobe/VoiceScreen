@@ -7,6 +7,13 @@ import yaml
 SCENARIOS_DIR = Path(__file__).resolve().parent.parent.parent / "scenarios"
 
 
+def available_scenarios() -> list[str]:
+    """Return sorted list of scenario names available in scenarios/ (yaml stems)."""
+    if not SCENARIOS_DIR.exists():
+        return []
+    return sorted(p.stem for p in SCENARIOS_DIR.glob("*.yaml"))
+
+
 def load_scenario(scenario_name: str) -> dict:
     """Load a YAML scenario file by name.
 

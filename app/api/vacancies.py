@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_client
+from app.core.scenario import available_scenarios
 from app.db.models import Client, Vacancy
 from app.db.session import get_session
 
@@ -26,8 +27,20 @@ class VacancyCreate(BaseModel):
 
 class VacancyUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    scenario_name: str | None = Field(default=None, min_length=1, max_length=100)
     pass_score: float | None = Field(default=None, ge=0.0, le=10.0)
     active: bool | None = None
+
+
+def _validate_scenario_name(name: str) -> str:
+    name = name.strip()
+    allowed = available_scenarios()
+    if name not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown scenario_name '{name}'. allowed: {allowed}",
+        )
+    return name
 
 
 class VacancyOut(BaseModel):
@@ -49,7 +62,7 @@ async def create_vacancy(
     vacancy = Vacancy(
         client_id=client.id,
         title=payload.title.strip(),
-        scenario_name=payload.scenario_name.strip(),
+        scenario_name=_validate_scenario_name(payload.scenario_name),
         pass_score=payload.pass_score,
         active=True,
     )
@@ -137,6 +150,8 @@ async def update_vacancy(
 
     if "title" in changes:
         vacancy.title = changes["title"].strip()
+    if "scenario_name" in changes:
+        vacancy.scenario_name = _validate_scenario_name(changes["scenario_name"])
     if "pass_score" in changes:
         vacancy.pass_score = changes["pass_score"]
     if "active" in changes:

@@ -220,7 +220,7 @@ curl -X POST https://voxscreen.ru/api/v1/vacancies \
   -d '{"title":"Курьер","scenario_name":"courier_screening","pass_score":6.0}'
 ```
 
-⚠️ `scenario_name` сейчас не валидируется — реально работает только `courier_screening`. Запиши `id` вакансии из ответа.
+`scenario_name` валидируется по содержимому каталога `scenarios/*.yaml` — неизвестное имя даст 400 с перечислением допустимых. Сейчас доступен только `courier_screening`. Запиши `id` вакансии из ответа.
 
 ```bash
 export VACANCY_ID=<id>
