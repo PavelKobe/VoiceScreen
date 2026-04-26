@@ -5,7 +5,10 @@ import type {
   CallDetail,
   CallEnqueued,
   CallsList,
+  CandidateDetail,
+  CandidateRow,
   CandidatesList,
+  CandidateUpdatePayload,
   Scenario,
   ScenarioBrief,
   ScenarioCreatePayload,
@@ -103,11 +106,47 @@ export function useCall(id: number | null) {
 
 // === Candidates ===
 
-export function useCandidates(vacancyId: number | null) {
+export function useCandidates(
+  vacancyId: number | null,
+  options?: { includeArchived?: boolean },
+) {
+  const includeArchived = options?.includeArchived ?? false;
   return useQuery({
-    queryKey: ["candidates", { vacancy_id: vacancyId }],
+    queryKey: ["candidates", { vacancy_id: vacancyId, includeArchived }],
     enabled: vacancyId !== null,
-    queryFn: () => api<CandidatesList>(`/candidates?vacancy_id=${vacancyId}`),
+    queryFn: () => {
+      const qs = new URLSearchParams({ vacancy_id: String(vacancyId) });
+      if (includeArchived) qs.set("include_archived", "true");
+      return api<CandidatesList>(`/candidates?${qs}`);
+    },
+  });
+}
+
+export function useCandidate(id: number | null) {
+  return useQuery({
+    queryKey: ["candidate", id],
+    enabled: id !== null,
+    queryFn: () => api<CandidateDetail>(`/candidates/${id}`),
+  });
+}
+
+export function useUpdateCandidate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, changes }: { id: number; changes: CandidateUpdatePayload }) =>
+      api<CandidateRow>(`/candidates/${id}`, { method: "PATCH", body: changes }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["candidate", vars.id] });
+    },
+  });
+}
+
+export function useArchiveCandidate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<void>(`/candidates/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["candidates"] }),
   });
 }
 

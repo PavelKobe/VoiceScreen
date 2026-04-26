@@ -94,6 +94,7 @@ class Candidate(Base):
     fio: Mapped[str] = mapped_column(String(255))
     source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="pending")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="candidates")

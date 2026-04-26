@@ -10,6 +10,7 @@ import { CallDetailPage } from "@/pages/CallDetail";
 import { TeamPage } from "@/pages/Team";
 import { ScenariosPage } from "@/pages/Scenarios";
 import { ScenarioEditPage } from "@/pages/ScenarioEdit";
+import { CandidateDetailPage } from "@/pages/CandidateDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -33,6 +34,7 @@ export default function App() {
               <Route path="/vacancies" element={<VacanciesPage />} />
               <Route path="/vacancies/:id" element={<VacancyDetailPage />} />
               <Route path="/calls/:id" element={<CallDetailPage />} />
+              <Route path="/candidates/:id" element={<CandidateDetailPage />} />
               <Route path="/scenarios" element={<ScenariosPage />} />
               <Route path="/scenarios/new" element={<ScenarioEditPage />} />
               <Route path="/scenarios/:slug" element={<ScenarioEditPage />} />

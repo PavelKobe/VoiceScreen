@@ -73,6 +73,7 @@ export interface CandidateRow {
   phone: string;
   source: string | null;
   status: string;
+  active: boolean;
   created_at: string;
   last_call: {
     id: number;
@@ -85,6 +86,31 @@ export interface CandidateRow {
 export interface CandidatesList {
   items: CandidateRow[];
   vacancy_id: number;
+}
+
+export interface CandidateDetail {
+  id: number;
+  vacancy_id: number;
+  fio: string;
+  phone: string;
+  source: string | null;
+  status: string;
+  active: boolean;
+  created_at: string;
+  calls: {
+    id: number;
+    started_at: string | null;
+    finished_at: string | null;
+    score: number | null;
+    decision: string | null;
+  }[];
+}
+
+export interface CandidateUpdatePayload {
+  fio?: string;
+  phone?: string;
+  source?: string | null;
+  active?: boolean;
 }
 
 export interface CallEnqueued {

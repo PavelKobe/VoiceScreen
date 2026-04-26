@@ -7,8 +7,9 @@ import io
 import re
 
 import structlog
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from openpyxl import load_workbook
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -194,6 +195,7 @@ async def upload_candidates(
 async def list_candidates(
     vacancy_id: int = Query(...),
     limit: int = Query(default=200, ge=1, le=1000),
+    include_archived: bool = Query(default=False),
     client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -217,9 +219,10 @@ async def list_candidates(
         .outerjoin(last_call_subq, last_call_subq.c.cid == Candidate.id)
         .outerjoin(Call, Call.id == last_call_subq.c.max_call_id)
         .where(Candidate.vacancy_id == vacancy_id)
-        .order_by(desc(Candidate.id))
-        .limit(limit)
     )
+    if not include_archived:
+        stmt = stmt.where(Candidate.active.is_(True))
+    stmt = stmt.order_by(desc(Candidate.id)).limit(limit)
     rows = (await session.execute(stmt)).all()
 
     items = []
@@ -232,6 +235,7 @@ async def list_candidates(
                 "phone": cand.phone,
                 "source": cand.source,
                 "status": cand.status,
+                "active": cand.active,
                 "created_at": cand.created_at.isoformat(),
                 "last_call": {
                     "id": last_call.id,
@@ -261,6 +265,10 @@ async def call_candidate(
     candidate = (await session.execute(stmt)).scalar_one_or_none()
     if candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
+    if not candidate.active:
+        raise HTTPException(
+            status_code=400, detail="кандидат архивирован — восстановите его перед обзвоном"
+        )
 
     task = initiate_call.delay(candidate.id)
     log.info(
@@ -270,6 +278,91 @@ async def call_candidate(
         task_id=task.id,
     )
     return {"candidate_id": candidate.id, "task_id": task.id}
+
+
+class CandidateUpdate(BaseModel):
+    fio: str | None = Field(default=None, min_length=1, max_length=255)
+    phone: str | None = Field(default=None, min_length=4, max_length=20)
+    source: str | None = Field(default=None, max_length=50)
+    active: bool | None = None
+
+
+@router.patch("/{candidate_id}")
+async def update_candidate(
+    candidate_id: int,
+    payload: CandidateUpdate,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Обновить ФИО / телефон / источник / статус активности кандидата."""
+    stmt = (
+        select(Candidate)
+        .join(Vacancy, Candidate.vacancy_id == Vacancy.id)
+        .where(Candidate.id == candidate_id, Vacancy.client_id == client.id)
+    )
+    candidate = (await session.execute(stmt)).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="нет полей для обновления")
+
+    if "fio" in changes:
+        candidate.fio = changes["fio"].strip()
+    if "phone" in changes:
+        candidate.phone = changes["phone"].strip()
+    if "source" in changes:
+        candidate.source = changes["source"].strip() if changes["source"] else None
+    if "active" in changes:
+        candidate.active = changes["active"]
+
+    await session.commit()
+    await session.refresh(candidate)
+
+    log.info(
+        "candidate_updated",
+        client_id=client.id,
+        candidate_id=candidate.id,
+        fields=list(changes.keys()),
+    )
+    return {
+        "id": candidate.id,
+        "vacancy_id": candidate.vacancy_id,
+        "fio": candidate.fio,
+        "phone": candidate.phone,
+        "source": candidate.source,
+        "status": candidate.status,
+        "active": candidate.active,
+    }
+
+
+@router.delete("/{candidate_id}", status_code=204)
+async def archive_candidate(
+    candidate_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Soft-архивирование. Идемпотентно. Записи звонков остаются."""
+    stmt = (
+        select(Candidate)
+        .join(Vacancy, Candidate.vacancy_id == Vacancy.id)
+        .where(Candidate.id == candidate_id, Vacancy.client_id == client.id)
+    )
+    candidate = (await session.execute(stmt)).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+
+    if candidate.active:
+        candidate.active = False
+        await session.commit()
+        log.info(
+            "candidate_archived",
+            client_id=client.id,
+            candidate_id=candidate.id,
+        )
+
+    return Response(status_code=204)
 
 
 @router.get("/{candidate_id}")
@@ -300,6 +393,8 @@ async def get_candidate(
         "fio": candidate.fio,
         "source": candidate.source,
         "status": candidate.status,
+        "active": candidate.active,
+        "created_at": candidate.created_at.isoformat(),
         "calls": [
             {
                 "id": c.id,
