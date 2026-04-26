@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useVacancy, useVacancyReport } from "@/api/hooks";
 import { decisionLabel, decisionVariant } from "@/lib/format";
 import { CallsTable } from "@/components/CallsTable";
+import { CandidatesTable } from "@/components/CandidatesTable";
 import { CandidatesUpload } from "@/components/CandidatesUpload";
 
 export function VacancyDetailPage() {
@@ -70,11 +71,15 @@ export function VacancyDetailPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="calls">
+      <Tabs defaultValue="candidates">
         <TabsList>
+          <TabsTrigger value="candidates">Кандидаты</TabsTrigger>
           <TabsTrigger value="calls">Звонки</TabsTrigger>
           <TabsTrigger value="upload">Загрузить кандидатов</TabsTrigger>
         </TabsList>
+        <TabsContent value="candidates">
+          <CandidatesTable vacancyId={vacancy.id} />
+        </TabsContent>
         <TabsContent value="calls">
           <CallsTable vacancyId={vacancy.id} />
         </TabsContent>

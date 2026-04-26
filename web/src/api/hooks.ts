@@ -3,7 +3,9 @@ import { api } from "@/lib/api";
 import type {
   Call,
   CallDetail,
+  CallEnqueued,
   CallsList,
+  CandidatesList,
   UploadResult,
   Vacancy,
   VacancyReport,
@@ -94,6 +96,28 @@ export function useCall(id: number | null) {
 }
 
 // === Candidates ===
+
+export function useCandidates(vacancyId: number | null) {
+  return useQuery({
+    queryKey: ["candidates", { vacancy_id: vacancyId }],
+    enabled: vacancyId !== null,
+    queryFn: () => api<CandidatesList>(`/candidates?vacancy_id=${vacancyId}`),
+  });
+}
+
+export function useCallCandidate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (candidateId: number) =>
+      api<CallEnqueued>(`/candidates/${candidateId}/call`, { method: "POST" }),
+    onSuccess: (_, candidateId) => {
+      // Не знаем точный vacancy_id здесь — инвалидируем все кандидатские/звонковые кеши.
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["calls"] });
+      qc.invalidateQueries({ queryKey: ["call", candidateId] });
+    },
+  });
+}
 
 export function useUploadCandidates() {
   const qc = useQueryClient();

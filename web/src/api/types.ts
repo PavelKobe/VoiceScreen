@@ -65,3 +65,29 @@ export interface UploadResult {
   invalid: { row: number; reason: string }[];
   enqueued: number;
 }
+
+export interface CandidateRow {
+  id: number;
+  vacancy_id: number;
+  fio: string;
+  phone: string;
+  source: string | null;
+  status: string;
+  created_at: string;
+  last_call: {
+    id: number;
+    started_at: string | null;
+    score: number | null;
+    decision: string | null;
+  } | null;
+}
+
+export interface CandidatesList {
+  items: CandidateRow[];
+  vacancy_id: number;
+}
+
+export interface CallEnqueued {
+  candidate_id: number;
+  task_id: string;
+}

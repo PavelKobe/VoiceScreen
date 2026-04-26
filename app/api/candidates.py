@@ -9,12 +9,13 @@ import re
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_principal
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
+from app.workers.tasks import initiate_call
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -187,6 +188,88 @@ async def upload_candidates(
         "invalid": invalid,
         "enqueued": enqueued,
     }
+
+
+@router.get("")
+async def list_candidates(
+    vacancy_id: int = Query(...),
+    limit: int = Query(default=200, ge=1, le=1000),
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Список кандидатов вакансии с агрегатом по последнему звонку."""
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    # Берём кандидатов и LEFT JOIN на «последний звонок» (по max id).
+    last_call_subq = (
+        select(
+            Call.candidate_id.label("cid"),
+            func.max(Call.id).label("max_call_id"),
+        )
+        .group_by(Call.candidate_id)
+        .subquery()
+    )
+
+    stmt = (
+        select(Candidate, Call)
+        .outerjoin(last_call_subq, last_call_subq.c.cid == Candidate.id)
+        .outerjoin(Call, Call.id == last_call_subq.c.max_call_id)
+        .where(Candidate.vacancy_id == vacancy_id)
+        .order_by(desc(Candidate.id))
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).all()
+
+    items = []
+    for cand, last_call in rows:
+        items.append(
+            {
+                "id": cand.id,
+                "vacancy_id": cand.vacancy_id,
+                "fio": cand.fio,
+                "phone": cand.phone,
+                "source": cand.source,
+                "status": cand.status,
+                "created_at": cand.created_at.isoformat(),
+                "last_call": {
+                    "id": last_call.id,
+                    "started_at": last_call.started_at.isoformat() if last_call.started_at else None,
+                    "score": last_call.score,
+                    "decision": last_call.decision,
+                }
+                if last_call is not None
+                else None,
+            }
+        )
+    return {"items": items, "vacancy_id": vacancy_id}
+
+
+@router.post("/{candidate_id}/call", status_code=202)
+async def call_candidate(
+    candidate_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Поставить кандидату задачу на обзвон через Celery."""
+    stmt = (
+        select(Candidate)
+        .join(Vacancy, Candidate.vacancy_id == Vacancy.id)
+        .where(Candidate.id == candidate_id, Vacancy.client_id == client.id)
+    )
+    candidate = (await session.execute(stmt)).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+
+    task = initiate_call.delay(candidate.id)
+    log.info(
+        "candidate_call_enqueued",
+        client_id=client.id,
+        candidate_id=candidate.id,
+        task_id=task.id,
+    )
+    return {"candidate_id": candidate.id, "task_id": task.id}
 
 
 @router.get("/{candidate_id}")

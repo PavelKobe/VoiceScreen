@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Phone, User } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Phone, PhoneCall, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useCall } from "@/api/hooks";
+import { useCall, useCallCandidate } from "@/api/hooks";
+import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant, formatDateTime, formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +14,9 @@ export function CallDetailPage() {
   const id = params.id ? Number(params.id) : null;
 
   const { data: call, isLoading } = useCall(id);
+  const callMutation = useCallCandidate();
+  const [retryStatus, setRetryStatus] = useState<"idle" | "queued" | "error">("idle");
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   if (isLoading || !call) {
     return (
@@ -22,6 +28,22 @@ export function CallDetailPage() {
 
   const candidate = call.candidate;
   const recordingUrl = call.has_recording ? `/api/v1/calls/${call.id}/recording` : null;
+
+  async function handleRetry() {
+    if (!candidate) return;
+    setRetryError(null);
+    try {
+      await callMutation.mutateAsync(candidate.id);
+      setRetryStatus("queued");
+    } catch (err) {
+      setRetryStatus("error");
+      if (err instanceof ApiError) {
+        setRetryError(typeof err.detail === "string" ? err.detail : "Не удалось поставить в очередь");
+      } else {
+        setRetryError("Ошибка сети");
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -61,8 +83,27 @@ export function CallDetailPage() {
             </div>
           )}
           <Badge variant={decisionVariant(call.decision)}>{decisionLabel(call.decision)}</Badge>
+          {candidate && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleRetry()}
+              disabled={callMutation.isPending || retryStatus === "queued"}
+            >
+              {callMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : retryStatus === "queued" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <PhoneCall className="h-4 w-4" />
+              )}
+              {retryStatus === "queued" ? "Поставлено в очередь" : "Позвонить ещё раз"}
+            </Button>
+          )}
         </div>
       </div>
+
+      {retryError && <p className="text-sm text-destructive">{retryError}</p>}
 
       {recordingUrl && (
         <Card>
