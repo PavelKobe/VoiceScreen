@@ -1,8 +1,40 @@
 # Шпаргалка команд VoiceScreen
 
-Две частые задачи: поднять сервисы после рестарта VM и задеплоить новые
-изменения. Все команды на VM запускаются от пользователя `ubuntu`,
-с Win11 — из PowerShell в `c:\Users\kobel\VoiceScreen\VoiceScreen\`.
+Все команды на VM запускаются от пользователя `ubuntu`, с Win11 — из
+PowerShell в `c:\Users\kobel\VoiceScreen\VoiceScreen\`.
+
+---
+
+## 0. Универсальный утренний рецепт ☀️
+
+Эту последовательность можно гонять **каждое утро или после любого
+перерыва** — работает и когда VM перезагружали, и когда контейнеры
+не выключались. Подтягивает свежий код и поднимает/перезапускает
+api+worker с новым кодом.
+
+```bash
+ssh voicescreen
+cd ~/VoiceScreen
+git pull
+docker compose up -d
+```
+
+Если в `pyproject.toml` появились новые pip-зависимости — после `git pull`
+дополнительно пересобрать образ:
+
+```bash
+docker compose build api worker
+docker compose up -d api worker
+```
+
+Если в репе появились новые миграции:
+
+```bash
+docker compose exec -w /app -e PYTHONPATH=/app api alembic upgrade head
+```
+
+В большинстве случаев хватает четырёх строк выше — миграции/build нужны
+редко, и Claude напоминает об этом в конце сообщений с пушем.
 
 ---
 
