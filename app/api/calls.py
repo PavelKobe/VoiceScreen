@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -88,11 +89,13 @@ async def get_call_recording(
     call_id: int,
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Return recording URL (stub — S3 signed URLs are a TODO)."""
+) -> RedirectResponse:
+    """302 redirect на signed URL записи звонка (Voximplant Object Storage)."""
     stmt = _scoped_call_stmt(client.id).where(Call.id == call_id)
     result = await session.execute(stmt)
     call = result.scalar_one_or_none()
     if call is None:
         raise HTTPException(status_code=404, detail="call not found")
-    return {"call_id": call_id, "recording_url": call.recording_url}
+    if not call.recording_url:
+        raise HTTPException(status_code=404, detail="recording not ready")
+    return RedirectResponse(url=call.recording_url, status_code=302)
