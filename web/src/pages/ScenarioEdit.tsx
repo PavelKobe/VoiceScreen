@@ -20,6 +20,7 @@ import {
   useUpdateScenario,
 } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
+import { slugify } from "@/lib/slugify";
 import type { Question, ScenarioCreatePayload } from "@/api/types";
 
 const EMPTY: ScenarioCreatePayload = {
@@ -50,6 +51,8 @@ export function ScenarioEditPage() {
   const [draft, setDraft] = useState<ScenarioCreatePayload>(EMPTY);
   const [active, setActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Slug автогенерится из title, пока пользователь сам его не отредактировал.
+  const [slugAuto, setSlugAuto] = useState<boolean>(!isEdit);
 
   useEffect(() => {
     if (isEdit && existing) {
@@ -62,11 +65,11 @@ export function ScenarioEditPage() {
         questions: existing.questions,
       });
       setActive(existing.active);
+      setSlugAuto(false);
     } else if (!isEdit && template) {
-      // Slug подставляется из шаблона. Можно оставить как есть (получишь
-      // свою DB-версию того же сценария — существующие вакансии подхватят)
-      // либо переименовать (создашь форк под свою компанию).
+      // Slug приходит из шаблона. Дальше будет регенериться, если пользователь поменяет title.
       setDraft({ ...template });
+      setSlugAuto(false);
     }
   }, [isEdit, existing, template]);
 
@@ -85,7 +88,18 @@ export function ScenarioEditPage() {
     key: K,
     value: ScenarioCreatePayload[K],
   ) {
-    setDraft((d) => ({ ...d, [key]: value }));
+    setDraft((d) => {
+      const next = { ...d, [key]: value };
+      if (key === "title" && slugAuto) {
+        next.slug = slugify(String(value));
+      }
+      return next;
+    });
+  }
+
+  function onSlugChange(v: string) {
+    setSlugAuto(false);
+    setDraft((d) => ({ ...d, slug: v.toLowerCase() }));
   }
 
   async function onSubmit(e: FormEvent) {
@@ -146,27 +160,8 @@ export function ScenarioEditPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="slug">Идентификатор (slug)</Label>
-                <Input
-                  id="slug"
-                  value={draft.slug}
-                  onChange={(e) => setField("slug", e.target.value)}
-                  required
-                  disabled={isEdit || submitting}
-                  placeholder="например: cashier_screening"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {isEdit
-                    ? "Slug нельзя изменить после создания."
-                    : templateSlug
-                      ? "Оставьте как есть — будет создана ваша версия сценария поверх системного шаблона. Или переименуйте, чтобы получить независимую копию."
-                      : "Латиница, цифры, дефис, подчёркивание (3–100 символов). Используется внутри системы."}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="title">Название (для списка)</Label>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="title">Название</Label>
                 <Input
                   id="title"
                   value={draft.title}
@@ -217,6 +212,28 @@ export function ScenarioEditPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Кем агент представляется в начале разговора (например, «HR-помощник»).
+                </p>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="slug" className="text-muted-foreground">
+                  Технический идентификатор
+                  {!isEdit && slugAuto && (
+                    <span className="ml-2 text-[10px] uppercase tracking-wider">авто</span>
+                  )}
+                </Label>
+                <Input
+                  id="slug"
+                  value={draft.slug}
+                  onChange={(e) => onSlugChange(e.target.value)}
+                  required
+                  disabled={isEdit || submitting}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isEdit
+                    ? "Идентификатор нельзя изменить после создания сценария."
+                    : "Генерируется автоматически из названия. Менять не нужно — это техническое имя для системы."}
                 </p>
               </div>
             </div>
