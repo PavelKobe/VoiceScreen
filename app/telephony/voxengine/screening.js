@@ -33,6 +33,8 @@ let toNumber, scenarioName, candidateId, wsUrl, callId;
 let call = null;
 let ws = null;
 let asr = null;
+let wasConnected = false;
+let failureReported = false;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
     data = JSON.parse(VoxEngine.customData() || "{}");
@@ -57,6 +59,7 @@ VoxEngine.addEventListener(AppEvents.Started, (e) => {
 
 function onCallConnected() {
     Logger.write("VoiceScreen: call connected, opening WS");
+    wasConnected = true;
 
     try { call.record(); } catch (err) {
         Logger.write("VoiceScreen: record() failed: " + err);
@@ -111,22 +114,61 @@ function onAsrResult(e) {
     }
 }
 
+function reportFailureAndTerminate(reason) {
+    if (failureReported) { VoxEngine.terminate(); return; }
+    failureReported = true;
+
+    // wsUrl: wss://host/api/v1/ws/call → https://host/api/v1/webhooks/call_failed
+    let webhookUrl = wsUrl
+        .replace(/^wss:\/\//, "https://")
+        .replace(/^ws:\/\//, "http://")
+        .replace(/\/ws\/call$/, "/webhooks/call_failed");
+
+    let payload = JSON.stringify({
+        call_id: callId,
+        candidate_id: candidateId,
+        to_number: toNumber,
+        scenario: scenarioName,
+        reason: reason,
+        auth_token: data.ws_auth_token || "",
+    });
+
+    Net.httpRequestAsync(webhookUrl, {
+        method: "POST",
+        postData: payload,
+        contentType: "application/json",
+    }, function (response) {
+        Logger.write("VoiceScreen: failure webhook code=" + response.code);
+        VoxEngine.terminate();
+    });
+}
+
 function onCallDisconnected() {
     Logger.write("VoiceScreen: call disconnected");
     if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "call_ended", reason: "disconnected" }));
         ws.close();
+        VoxEngine.terminate();
+        return;
+    }
+    if (!wasConnected) {
+        // Disconnected до Connected = звонок не дошёл (быстрый сброс).
+        reportFailureAndTerminate("disconnected_before_connect");
+        return;
     }
     VoxEngine.terminate();
 }
 
 function onCallFailed(e) {
     Logger.write("VoiceScreen: call failed code=" + e.code + " reason=" + e.reason);
+    let reason = "failed:" + e.code;
     if (ws && ws.readyState === "open") {
-        ws.send(JSON.stringify({ type: "call_ended", reason: "failed:" + e.code }));
+        ws.send(JSON.stringify({ type: "call_ended", reason: reason }));
         ws.close();
+        VoxEngine.terminate();
+        return;
     }
-    VoxEngine.terminate();
+    reportFailureAndTerminate(reason);
 }
 
 function onWsClose()   { Logger.write("VoiceScreen: WS closed"); }

@@ -23,13 +23,14 @@ export function decisionLabel(decision: string | null): string {
     pass: "Прошёл",
     review: "Проверить",
     reject: "Отказ",
+    not_reached: "Не дозвонились",
   };
   return map[decision] ?? decision;
 }
 
 export function decisionVariant(
   decision: string | null,
-): "success" | "warning" | "destructive" | "outline" {
+): "success" | "warning" | "destructive" | "outline" | "secondary" {
   switch (decision) {
     case "pass":
       return "success";
@@ -37,6 +38,8 @@ export function decisionVariant(
       return "warning";
     case "reject":
       return "destructive";
+    case "not_reached":
+      return "secondary";
     default:
       return "outline";
   }
