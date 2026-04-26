@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_client
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
+from app.telephony.voximplant import get_record_url
 
 router = APIRouter()
 
@@ -96,6 +97,16 @@ async def get_call_recording(
     call = result.scalar_one_or_none()
     if call is None:
         raise HTTPException(status_code=404, detail="call not found")
-    if not call.recording_url:
+    # Сохранённый recording_url подписан Voximplant'ом и быстро протухает —
+    # при каждом запросе берём свежий через GetCallHistory.
+    fresh_url: str | None = None
+    if call.voximplant_call_id:
+        try:
+            fresh_url = await get_record_url(call.voximplant_call_id)
+        except Exception:
+            fresh_url = None
+
+    target = fresh_url or call.recording_url
+    if not target:
         raise HTTPException(status_code=404, detail="recording not ready")
-    return RedirectResponse(url=call.recording_url, status_code=302)
+    return RedirectResponse(url=target, status_code=302)
