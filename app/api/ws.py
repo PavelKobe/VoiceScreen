@@ -170,14 +170,17 @@ async def call_ws(ws: WebSocket) -> None:
                     turn_order += 1
                 reply = await session.process_candidate_reply(text)
                 if reply is None:
+                    # Сессия уже была завершена — кандидат продолжает говорить
+                    # после прощания. Просто молча кладём трубку.
                     await ws.send_text(json.dumps({"type": "hangup"}))
                     break
                 if db_call_id is not None:
                     await _append_turn(db_call_id, "agent", reply, turn_order)
                     turn_order += 1
                 await ws.send_text(json.dumps({"type": "say", "text": reply}))
-                # Natural end of scenario — farewell already sent, now hang up.
-                if session.turn_count >= session.scenario.get("max_turns", 20):
+                # Если бэк только что произнёс прощание — кладём трубку, не ждём
+                # следующей реплики кандидата.
+                if session.finished:
                     await ws.send_text(json.dumps({"type": "hangup"}))
                     break
 
