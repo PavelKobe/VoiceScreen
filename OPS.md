@@ -344,7 +344,17 @@ curl -X POST http://localhost:8000/api/v1/clients \
 # → 201 {"id":..., "name":..., "tariff":..., "api_key":"<СОХРАНИ>"}
 ```
 
-`api_key` отдаётся **только при создании**. Если потерял — перевыпустить через psql или добавить отдельный admin-эндпоинт.
+`api_key` отдаётся **только при создании**. Если потерял — `POST /clients/{id}/rotate-key` (см. ниже).
+
+### Перевыпустить api_key (admin)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/clients/<id>/rotate-key \
+  -H "X-Admin-Key: $ADMIN_API_KEY"
+# → 200 {"id":..., "api_key":"<новый>"}
+```
+
+Старый ключ инвалидируется немедленно. Передать новый клиенту защищённым каналом.
 
 ### Создать вакансию (client)
 

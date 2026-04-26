@@ -91,3 +91,29 @@ async def list_clients(
         )
         for c in clients
     ]
+
+
+class ApiKeyRotated(BaseModel):
+    id: int
+    api_key: str  # returned ONCE on rotation; previous key is invalidated immediately
+
+
+@router.post(
+    "/{client_id}/rotate-key",
+    response_model=ApiKeyRotated,
+    dependencies=[Depends(require_admin)],
+)
+async def rotate_client_api_key(
+    client_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> ApiKeyRotated:
+    client = await session.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="client not found")
+
+    new_key = secrets.token_urlsafe(32)
+    client.api_key = new_key
+    await session.commit()
+
+    log.info("client_api_key_rotated", client_id=client.id)
+    return ApiKeyRotated(id=client.id, api_key=new_key)
