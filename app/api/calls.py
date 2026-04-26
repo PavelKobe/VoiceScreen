@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_client
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
-from app.telephony.voximplant import get_record_url
+from app.storage.yos import YOS_PREFIX, presign_recording
 
 router = APIRouter()
 
@@ -97,16 +97,14 @@ async def get_call_recording(
     call = result.scalar_one_or_none()
     if call is None:
         raise HTTPException(status_code=404, detail="call not found")
-    # Сохранённый recording_url подписан Voximplant'ом и быстро протухает —
-    # при каждом запросе берём свежий через GetCallHistory.
-    fresh_url: str | None = None
-    if call.voximplant_call_id:
-        try:
-            fresh_url = await get_record_url(call.voximplant_call_id)
-        except Exception:
-            fresh_url = None
-
-    target = fresh_url or call.recording_url
-    if not target:
+    if not call.recording_url:
         raise HTTPException(status_code=404, detail="recording not ready")
-    return RedirectResponse(url=target, status_code=302)
+
+    # Новые записи лежат в YOS под yos://recordings/{id}.mp3 — генерим
+    # короткоживущий signed URL и редиректим. Старые записи (Voximplant
+    # signed URL) сейчас всё равно отвергаются их edge — даём 410.
+    if call.recording_url.startswith(YOS_PREFIX):
+        signed = presign_recording(call.recording_url, expires_seconds=3600)
+        return RedirectResponse(url=signed, status_code=302)
+
+    raise HTTPException(status_code=410, detail="recording stored in legacy format; re-upload required")

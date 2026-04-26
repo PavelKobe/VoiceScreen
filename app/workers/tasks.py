@@ -13,6 +13,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -20,6 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.db.models import Call, Candidate, Vacancy
+from app.storage.yos import upload_recording
 from app.telephony.voximplant import get_record_url, originate_call
 from app.workers.celery_app import celery_app
 
@@ -105,13 +107,28 @@ async def _fetch_recording_async(call_db_id: int) -> str | None:
     if not url:
         return None
 
+    # Voximplant signed record_url отвергает прямой запрос — нужно дописать
+    # account_id+api_key в query. Это работает только server-side, отдавать
+    # такой URL клиенту нельзя (утечка api_key).
+    sep = "&" if "?" in url else "?"
+    auth_url = (
+        f"{url}{sep}account_id={settings.voximplant_account_id}"
+        f"&api_key={settings.voximplant_api_key}"
+    )
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.get(auth_url)
+        resp.raise_for_status()
+        mp3_bytes = resp.content
+
+    yos_uri = upload_recording(call_db_id, mp3_bytes)
+
     async with _task_session() as db:
         call = await db.get(Call, call_db_id)
         if call is None:
             return None
-        call.recording_url = url
+        call.recording_url = yos_uri
         await db.commit()
-    return url
+    return yos_uri
 
 
 @celery_app.task(bind=True, max_retries=6, default_retry_delay=60)
