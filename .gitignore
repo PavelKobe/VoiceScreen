@@ -45,6 +45,8 @@ recordings/
 # Alembic
 alembic/versions/*.pyc
 
-# Node (for future frontend)
+# Node / Web (SPA)
 node_modules/
 .next/
+web/dist/
+*.tsbuildinfo

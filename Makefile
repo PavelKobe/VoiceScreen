@@ -1,4 +1,5 @@
-.PHONY: install db-up db-down db-migrate dev worker bot test simulate-dialog format lint sync
+.PHONY: install db-up db-down db-migrate dev worker bot test simulate-dialog format lint sync \
+	web-install web-dev web-build web-deploy
 
 install:
 	pip install -e ".[dev]"
@@ -42,3 +43,17 @@ lint:
 	ruff check .
 	black --check .
 	mypy app/
+
+# === Web (SPA) ===
+web-install:
+	cd web && npm install
+
+web-dev:
+	cd web && npm run dev
+
+web-build:
+	cd web && npm run build
+
+# Деплой статики на VM. Хост-алиас 'voicescreen' должен быть в ~/.ssh/config.
+web-deploy: web-build
+	rsync -avz --delete web/dist/ voicescreen:/var/www/voxscreen-app/
