@@ -186,7 +186,151 @@ sed -i 's/\r$//' .env
 
 ---
 
-## 7. Тестовые curl'ы
+## 7. Онбординг нового клиента (runbook)
+
+Сценарий: с нуля до первого обзвона. Все шаги — на VM с `~/VoiceScreen` или с любой машины через `https://voxscreen.ru/api/v1`. Нужен `ADMIN_API_KEY` из `.env`.
+
+### Шаг 1. Создать клиента (admin)
+
+```bash
+curl -X POST https://voxscreen.ru/api/v1/clients \
+  -H "X-Admin-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ООО Ромашка","tariff":"start"}'
+```
+
+Ответ содержит `api_key` — **сохрани его сразу**, второй раз не отдадим.
+
+```bash
+export CLIENT_API_KEY='<тот_что_пришёл>'
+```
+
+### Шаг 2. Передать `api_key` клиенту
+
+Любым защищённым каналом (зашифрованный архив / сообщение, удаляемое после прочтения). Не Telegram-чат.
+
+### Шаг 3. Создать вакансию
+
+Можно за клиента (если онбординг ручной), либо клиент сам:
+
+```bash
+curl -X POST https://voxscreen.ru/api/v1/vacancies \
+  -H "X-API-Key: $CLIENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Курьер","scenario_name":"courier_screening","pass_score":6.0}'
+```
+
+⚠️ `scenario_name` сейчас не валидируется — реально работает только `courier_screening`. Запиши `id` вакансии из ответа.
+
+```bash
+export VACANCY_ID=<id>
+```
+
+### Шаг 4. Подготовить файл кандидатов
+
+Шаблон: `files/candidates_template.xlsx` (или csv). Колонки:
+
+- `phone` — формат `+7XXXXXXXXXX`
+- `fio` — ФИО полностью
+- `source` *(опционально)* — откуда отклик (`hh`, `avito`, …)
+
+### Шаг 5. Загрузить кандидатов (без обзвона)
+
+```bash
+curl -X POST "https://voxscreen.ru/api/v1/candidates/upload?vacancy_id=$VACANCY_ID&start=false" \
+  -H "X-API-Key: $CLIENT_API_KEY" \
+  -F "file=@candidates.xlsx"
+# → {"created":N, "duplicates":N, "invalid":[...], "enqueued":0}
+```
+
+Проверить, что `invalid` пуст. Если нет — поправить файл и перезалить (дубли по телефону отсеются автоматически).
+
+### Шаг 6. Запустить обзвон
+
+Опция A — пнуть Celery-таски на всех `pending` кандидатов вакансии (рекомендуется для контроля):
+
+```bash
+docker compose exec api python -c \
+  "from app.workers.tasks import initiate_call; \
+   import asyncio; from app.db.session import async_session; \
+   from app.db.models import Candidate; \
+   from sqlalchemy import select; \
+   async def run(): \
+     async with async_session() as s: \
+       cs = (await s.execute(select(Candidate).where(Candidate.vacancy_id==$VACANCY_ID, Candidate.status=='pending'))).scalars().all(); \
+       for c in cs: initiate_call.delay(c.id); \
+       print(f'enqueued {len(cs)}'); \
+   asyncio.run(run())"
+```
+
+Опция B — `start=true` при upload (`...&start=true`) — обзвон стартует сразу. Удобно, но не даёт сверить файл перед звонками.
+
+### Шаг 7. Мониторинг
+
+```bash
+# логи api в реальном времени
+docker compose logs -f api
+
+# список звонков по клиенту
+curl "https://voxscreen.ru/api/v1/calls?limit=20" -H "X-API-Key: $CLIENT_API_KEY"
+
+# детали звонка с транскриптом
+curl "https://voxscreen.ru/api/v1/calls/<call_id>" -H "X-API-Key: $CLIENT_API_KEY"
+
+# скачать запись
+curl -L "https://voxscreen.ru/api/v1/calls/<call_id>/recording" \
+  -H "X-API-Key: $CLIENT_API_KEY" -o rec.mp3
+```
+
+### Шаг 8. Корректировки вакансии
+
+```bash
+# поднять/опустить порог
+curl -X PATCH https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID \
+  -H "X-API-Key: $CLIENT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"pass_score":7.0}'
+
+# переименовать
+curl -X PATCH https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID \
+  -H "X-API-Key: $CLIENT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"title":"Курьер пеший (Москва)"}'
+
+# деактивировать (soft delete; новые звонки не ставятся)
+curl -X DELETE https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID \
+  -H "X-API-Key: $CLIENT_API_KEY"
+
+# вернуть в активные
+curl -X PATCH https://voxscreen.ru/api/v1/vacancies/$VACANCY_ID \
+  -H "X-API-Key: $CLIENT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"active":true}'
+```
+
+### Шаг 9. Отчёт по вакансии
+
+⚠️ Отдельной ручки `/vacancies/{id}/report` пока нет — пункт 6 в `project_pilot_prep_priority`. Сейчас агрегацию руками:
+
+```bash
+docker compose exec postgres psql -U voicescreen -d voicescreen -c \
+  "SELECT decision, COUNT(*), AVG(score)::numeric(4,2) AS avg_score \
+   FROM calls c JOIN candidates cand ON c.candidate_id=cand.id \
+   WHERE cand.vacancy_id=$VACANCY_ID AND c.score IS NOT NULL \
+   GROUP BY decision;"
+```
+
+### Чек-лист (распечатать перед запуском пилота)
+
+- [ ] `ADMIN_API_KEY` под рукой
+- [ ] Клиент создан, `api_key` сохранён в KeePass/1Password
+- [ ] Вакансия создана, `pass_score` согласован с HR
+- [ ] Файл кандидатов прошёл валидацию (`invalid: []`)
+- [ ] Сделан 1 пробный звонок на свой номер (через `make test-call` или ручной upload одного кандидата с твоим номером + `start=true`)
+- [ ] Запись и транскрипт пробного звонка прослушаны
+- [ ] АОН-брендинг номера запущен / в процессе (иначе ответ-рейт просядет)
+- [ ] Обзвон запущен, логи `docker compose logs -f api` смотрятся
+
+---
+
+## 8. Тестовые curl'ы
 
 > Все примеры на `localhost:8000` — через VM-tunnel или с самой VM. Снаружи — `https://voxscreen.ru/api/v1/...`.
 
@@ -210,6 +354,24 @@ curl -X POST http://localhost:8000/api/v1/vacancies \
   -H "Content-Type: application/json" \
   -d '{"title":"Курьер","scenario_name":"courier_screening","pass_score":6.0}'
 # → 201 {"id":..., "client_id":..., ...}
+```
+
+### Список / детали / правка вакансий
+
+```bash
+# список своих вакансий
+curl "http://localhost:8000/api/v1/vacancies?active=true" -H "X-API-Key: <key>"
+
+# одна вакансия
+curl http://localhost:8000/api/v1/vacancies/<id> -H "X-API-Key: <key>"
+
+# partial update (любая комбинация title/pass_score/active)
+curl -X PATCH http://localhost:8000/api/v1/vacancies/<id> \
+  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"pass_score":7.0}'
+
+# soft delete (active=false, идемпотентно)
+curl -X DELETE http://localhost:8000/api/v1/vacancies/<id> -H "X-API-Key: <key>"
 ```
 
 ### Загрузить кандидатов
@@ -253,7 +415,7 @@ curl -i -X POST http://localhost:8000/api/v1/clients -H "X-Admin-Key: nope" -H "
 
 ---
 
-## 8. VoxEngine сценарий (Voximplant)
+## 9. VoxEngine сценарий (Voximplant)
 
 Файл: `app/telephony/voxengine/screening.js`. Это **JS-код, который выполняется на стороне Voximplant**, не на нашем сервере. Он запускается их StartScenarios (rule привязан к приложению `voicescreen`).
 
@@ -296,7 +458,7 @@ curl -i -X POST http://localhost:8000/api/v1/clients -H "X-Admin-Key: nope" -H "
 
 ---
 
-## 9. Внешние сервисы
+## 10. Внешние сервисы
 
 | Сервис             | Где                                        | Что хранит                          |
 |--------------------|-------------------------------------------|-------------------------------------|
@@ -311,7 +473,7 @@ curl -i -X POST http://localhost:8000/api/v1/clients -H "X-Admin-Key: nope" -H "
 
 ---
 
-## 9. Типичные проблемы
+## 11. Типичные проблемы
 
 ### `ModuleNotFoundError` при старте api
 
@@ -348,7 +510,7 @@ admin_api_key: str = ""
 
 ---
 
-## 10. Памятка по секретам
+## 12. Памятка по секретам
 
 Все секреты — в `.env` на VM. **Никогда** не коммить `.env` и не выкладывай в чаты/issue/PR.
 
@@ -368,7 +530,7 @@ admin_api_key: str = ""
 
 ---
 
-## 11. Полезные ссылки
+## 13. Полезные ссылки
 
 - API внешний: `https://voxscreen.ru/api/v1`
 - WS для VoxEngine: `wss://voxscreen.ru/api/v1/ws/call`
