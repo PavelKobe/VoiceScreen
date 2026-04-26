@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,12 @@ class VacancyCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     scenario_name: str = Field(..., min_length=1, max_length=100)
     pass_score: float = Field(default=6.0, ge=0.0, le=10.0)
+
+
+class VacancyUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    pass_score: float | None = Field(default=None, ge=0.0, le=10.0)
+    active: bool | None = None
 
 
 class VacancyOut(BaseModel):
@@ -112,3 +118,63 @@ async def get_vacancy(
         active=vacancy.active,
         created_at=vacancy.created_at,
     )
+
+
+@router.patch("/{vacancy_id}", response_model=VacancyOut)
+async def update_vacancy(
+    vacancy_id: int,
+    payload: VacancyUpdate,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+) -> VacancyOut:
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="no fields to update")
+
+    if "title" in changes:
+        vacancy.title = changes["title"].strip()
+    if "pass_score" in changes:
+        vacancy.pass_score = changes["pass_score"]
+    if "active" in changes:
+        vacancy.active = changes["active"]
+
+    await session.commit()
+    await session.refresh(vacancy)
+
+    log.info(
+        "vacancy_updated",
+        client_id=client.id,
+        vacancy_id=vacancy.id,
+        fields=list(changes.keys()),
+    )
+    return VacancyOut(
+        id=vacancy.id,
+        client_id=vacancy.client_id,
+        title=vacancy.title,
+        scenario_name=vacancy.scenario_name,
+        pass_score=vacancy.pass_score,
+        active=vacancy.active,
+        created_at=vacancy.created_at,
+    )
+
+
+@router.delete("/{vacancy_id}", status_code=204)
+async def deactivate_vacancy(
+    vacancy_id: int,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    if vacancy.active:
+        vacancy.active = False
+        await session.commit()
+        log.info("vacancy_deactivated", client_id=client.id, vacancy_id=vacancy.id)
+
+    return Response(status_code=204)
