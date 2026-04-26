@@ -2,8 +2,11 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { RequireAuth } from "@/auth/RequireAuth";
+import { Layout } from "@/components/Layout";
 import { LoginPage } from "@/pages/Login";
-import { HomePage } from "@/pages/Home";
+import { VacanciesPage } from "@/pages/Vacancies";
+import { VacancyDetailPage } from "@/pages/VacancyDetail";
+import { CallDetailPage } from "@/pages/CallDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -17,13 +20,17 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route
-              path="/"
               element={
                 <RequireAuth>
-                  <HomePage />
+                  <Layout />
                 </RequireAuth>
               }
-            />
+            >
+              <Route path="/" element={<Navigate to="/vacancies" replace />} />
+              <Route path="/vacancies" element={<VacanciesPage />} />
+              <Route path="/vacancies/:id" element={<VacancyDetailPage />} />
+              <Route path="/calls/:id" element={<CallDetailPage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

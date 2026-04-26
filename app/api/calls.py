@@ -17,9 +17,18 @@ router = APIRouter()
 
 
 def _serialize_call(call: Call, include_turns: bool = False) -> dict:
+    candidate = call.candidate
     data = {
         "id": call.id,
         "candidate_id": call.candidate_id,
+        "candidate": {
+            "id": candidate.id,
+            "fio": candidate.fio,
+            "phone": candidate.phone,
+            "vacancy_id": candidate.vacancy_id,
+        }
+        if candidate is not None
+        else None,
         "voximplant_call_id": call.voximplant_call_id,
         "started_at": call.started_at.isoformat() if call.started_at else None,
         "finished_at": call.finished_at.isoformat() if call.finished_at else None,
@@ -29,6 +38,8 @@ def _serialize_call(call: Call, include_turns: bool = False) -> dict:
         "score_reasoning": call.score_reasoning,
         "answers": call.answers,
         "attempt": call.attempt,
+        "has_recording": call.recording_url is not None
+        and call.recording_url.startswith(YOS_PREFIX),
     }
     if include_turns:
         data["turns"] = [
@@ -54,13 +65,25 @@ async def list_calls(
     limit: int = 20,
     offset: int = 0,
     candidate_id: int | None = None,
+    vacancy_id: int | None = None,
     client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """List calls (newest first) for the calling client; optional candidate_id filter."""
-    stmt = _scoped_call_stmt(client.id).order_by(Call.id.desc()).limit(limit).offset(offset)
+    """List calls (newest first) for the calling client.
+
+    Поддерживает фильтры candidate_id и vacancy_id (взаимодополняющие).
+    """
+    stmt = (
+        _scoped_call_stmt(client.id)
+        .options(selectinload(Call.candidate))
+        .order_by(Call.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     if candidate_id is not None:
         stmt = stmt.where(Call.candidate_id == candidate_id)
+    if vacancy_id is not None:
+        stmt = stmt.where(Candidate.vacancy_id == vacancy_id)
     result = await session.execute(stmt)
     calls = result.scalars().all()
     return {"items": [_serialize_call(c) for c in calls], "limit": limit, "offset": offset}
@@ -75,7 +98,7 @@ async def get_call(
     """Get call details including all turns and transcript."""
     stmt = (
         _scoped_call_stmt(client.id)
-        .options(selectinload(Call.turns))
+        .options(selectinload(Call.turns), selectinload(Call.candidate))
         .where(Call.id == call_id)
     )
     result = await session.execute(stmt)
