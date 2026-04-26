@@ -32,13 +32,13 @@ class VacancyUpdate(BaseModel):
     active: bool | None = None
 
 
-def _validate_scenario_name(name: str) -> str:
+async def _validate_scenario_name(name: str, client_id: int, session: AsyncSession) -> str:
     name = name.strip()
-    allowed = available_scenarios()
+    allowed = await available_scenarios(client_id, session)
     if name not in allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"unknown scenario_name '{name}'. allowed: {allowed}",
+            detail=f"сценарий «{name}» не найден. Доступные: {allowed}",
         )
     return name
 
@@ -59,10 +59,13 @@ async def create_vacancy(
     client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> VacancyOut:
+    scenario_slug = await _validate_scenario_name(
+        payload.scenario_name, client.id, session
+    )
     vacancy = Vacancy(
         client_id=client.id,
         title=payload.title.strip(),
-        scenario_name=_validate_scenario_name(payload.scenario_name),
+        scenario_name=scenario_slug,
         pass_score=payload.pass_score,
         active=True,
     )
@@ -151,7 +154,9 @@ async def update_vacancy(
     if "title" in changes:
         vacancy.title = changes["title"].strip()
     if "scenario_name" in changes:
-        vacancy.scenario_name = _validate_scenario_name(changes["scenario_name"])
+        vacancy.scenario_name = await _validate_scenario_name(
+            changes["scenario_name"], client.id, session
+        )
     if "pass_score" in changes:
         vacancy.pass_score = changes["pass_score"]
     if "active" in changes:

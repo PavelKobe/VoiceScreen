@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useCreateVacancy, useUpdateVacancy } from "@/api/hooks";
+import { useCreateVacancy, useScenarios, useUpdateVacancy } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
 import type { Vacancy } from "@/api/types";
 
@@ -25,9 +26,10 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
   const editing = vacancy != null;
   const create = useCreateVacancy();
   const update = useUpdateVacancy();
+  const { data: scenarios, isLoading: scenariosLoading } = useScenarios({ active: true });
 
   const [title, setTitle] = useState("");
-  const [scenarioName, setScenarioName] = useState("courier_screening");
+  const [scenarioName, setScenarioName] = useState("");
   const [passScore, setPassScore] = useState(6);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,11 +40,11 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
       setPassScore(vacancy.pass_score);
     } else if (open && !vacancy) {
       setTitle("");
-      setScenarioName("courier_screening");
+      setScenarioName(scenarios?.[0]?.slug ?? "");
       setPassScore(6);
     }
     if (open) setError(null);
-  }, [open, vacancy]);
+  }, [open, vacancy, scenarios]);
 
   const submitting = create.isPending || update.isPending;
 
@@ -95,16 +97,44 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
 
           <div className="space-y-2">
             <Label htmlFor="scenario">Сценарий</Label>
-            <Input
-              id="scenario"
-              value={scenarioName}
-              onChange={(e) => setScenarioName(e.target.value)}
-              required
-              disabled={submitting || editing}
-            />
-            {!editing && (
+            {editing ? (
+              <Input id="scenario" value={scenarioName} disabled className="font-mono" />
+            ) : scenariosLoading ? (
+              <div className="flex h-10 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Загружаем список…
+              </div>
+            ) : !scenarios || scenarios.length === 0 ? (
+              <div className="rounded-md border border-dashed bg-muted/40 p-3 text-sm">
+                Сценариев пока нет.{" "}
+                <Link
+                  to="/scenarios"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Создайте первый
+                </Link>{" "}
+                на странице «Сценарии».
+              </div>
+            ) : (
+              <select
+                id="scenario"
+                value={scenarioName}
+                onChange={(e) => setScenarioName(e.target.value)}
+                required
+                disabled={submitting}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {scenarios.map((s) => (
+                  <option key={s.slug} value={s.slug}>
+                    {s.title} ({s.slug})
+                  </option>
+                ))}
+              </select>
+            )}
+            {editing && (
               <p className="text-xs text-muted-foreground">
-                Доступные значения определяются YAML-файлами в <code>scenarios/</code>.
+                Сменить сценарий у существующей вакансии можно в БД — но мы стараемся не делать это, чтобы не смешивать звонки разных сценариев в отчёте.
               </p>
             )}
           </div>

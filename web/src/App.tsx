@@ -8,6 +8,8 @@ import { VacanciesPage } from "@/pages/Vacancies";
 import { VacancyDetailPage } from "@/pages/VacancyDetail";
 import { CallDetailPage } from "@/pages/CallDetail";
 import { TeamPage } from "@/pages/Team";
+import { ScenariosPage } from "@/pages/Scenarios";
+import { ScenarioEditPage } from "@/pages/ScenarioEdit";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -31,6 +33,9 @@ export default function App() {
               <Route path="/vacancies" element={<VacanciesPage />} />
               <Route path="/vacancies/:id" element={<VacancyDetailPage />} />
               <Route path="/calls/:id" element={<CallDetailPage />} />
+              <Route path="/scenarios" element={<ScenariosPage />} />
+              <Route path="/scenarios/new" element={<ScenarioEditPage />} />
+              <Route path="/scenarios/:slug" element={<ScenarioEditPage />} />
               <Route path="/team" element={<TeamPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

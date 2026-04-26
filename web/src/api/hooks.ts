@@ -6,6 +6,11 @@ import type {
   CallEnqueued,
   CallsList,
   CandidatesList,
+  Scenario,
+  ScenarioBrief,
+  ScenarioCreatePayload,
+  ScenarioTemplate,
+  ScenarioUpdatePayload,
   Teammate,
   UploadResult,
   Vacancy,
@@ -154,6 +159,62 @@ export function useInviteTeammate() {
     mutationFn: (payload: { email: string; password: string; role?: string }) =>
       api<Teammate>("/team", { method: "POST", body: payload }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["team"] }),
+  });
+}
+
+// === Scenarios ===
+
+export function useScenarios(params?: { active?: boolean }) {
+  const qs = new URLSearchParams();
+  if (params?.active !== undefined) qs.set("active", String(params.active));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return useQuery({
+    queryKey: ["scenarios", params],
+    queryFn: () => api<ScenarioBrief[]>(`/scenarios${suffix}`),
+  });
+}
+
+export function useScenario(slug: string | null) {
+  return useQuery({
+    queryKey: ["scenario", slug],
+    enabled: slug !== null,
+    queryFn: () => api<Scenario>(`/scenarios/${slug}`),
+  });
+}
+
+export function useScenarioTemplates() {
+  return useQuery({
+    queryKey: ["scenario-templates"],
+    queryFn: () => api<ScenarioTemplate[]>("/scenarios/templates"),
+  });
+}
+
+export function useScenarioTemplate(slug: string | null) {
+  return useQuery({
+    queryKey: ["scenario-template", slug],
+    enabled: slug !== null,
+    queryFn: () => api<ScenarioCreatePayload>(`/scenarios/templates/${slug}`),
+  });
+}
+
+export function useCreateScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ScenarioCreatePayload) =>
+      api<Scenario>("/scenarios", { method: "POST", body: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scenarios"] }),
+  });
+}
+
+export function useUpdateScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, changes }: { slug: string; changes: ScenarioUpdatePayload }) =>
+      api<Scenario>(`/scenarios/${slug}`, { method: "PATCH", body: changes }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["scenarios"] });
+      qc.invalidateQueries({ queryKey: ["scenario", vars.slug] });
+    },
   });
 }
 

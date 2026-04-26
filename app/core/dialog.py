@@ -3,7 +3,7 @@
 import structlog
 
 from app.core.llm import get_next_reply
-from app.core.scenario import build_system_prompt, load_scenario
+from app.core.scenario import build_system_prompt
 
 log = structlog.get_logger()
 
@@ -11,8 +11,8 @@ log = structlog.get_logger()
 class DialogSession:
     """Manages one screening conversation."""
 
-    def __init__(self, scenario_name: str):
-        self.scenario = load_scenario(scenario_name)
+    def __init__(self, scenario: dict):
+        self.scenario = scenario
         self.system_prompt = build_system_prompt(self.scenario)
         self.history: list[dict[str, str]] = []
         self.turn_count = 0

@@ -99,3 +99,60 @@ export interface Teammate {
   active: boolean;
   created_at: string;
 }
+
+export type QuestionType = "open" | "confirm" | "choice";
+
+export interface Question {
+  text: string;
+  type: QuestionType;
+  options?: string[] | null;
+}
+
+export interface ScenarioBrief {
+  id: number;
+  slug: string;
+  title: string;
+  company_name: string;
+  vacancy_title: string;
+  active: boolean;
+  questions_count: number;
+  updated_at: string;
+}
+
+export interface Scenario {
+  id: number;
+  slug: string;
+  title: string;
+  agent_role: string;
+  company_name: string;
+  vacancy_title: string;
+  questions: Question[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScenarioCreatePayload {
+  slug: string;
+  title: string;
+  agent_role: string;
+  company_name: string;
+  vacancy_title: string;
+  questions: Question[];
+}
+
+export interface ScenarioUpdatePayload {
+  title?: string;
+  agent_role?: string;
+  company_name?: string;
+  vacancy_title?: string;
+  questions?: Question[];
+  active?: boolean;
+}
+
+export interface ScenarioTemplate {
+  slug: string;
+  title: string;
+  company_name: string;
+  questions_count: number;
+}

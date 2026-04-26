@@ -26,8 +26,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.config import settings
 from app.core.dialog import DialogSession
+from app.core.scenario import load_scenario
 from app.core.scoring import score_call
-from app.db.models import Call, CallTurn, Candidate
+from app.db.models import Call, CallTurn, Candidate, Vacancy
 from app.db.session import async_session
 
 router = APIRouter()
@@ -115,11 +116,44 @@ async def call_ws(ws: WebSocket) -> None:
                         log.warning("ws_auth_rejected", call_id=call_id)
                         await ws.close(code=4401)
                         return
-                scenario = msg.get("scenario", "courier_screening")
+                scenario_slug = msg.get("scenario", "courier_screening")
                 candidate_id = msg.get("candidate_id")
-                log.info("ws_call_start", call_id=call_id, scenario=scenario, candidate_id=candidate_id)
+                log.info(
+                    "ws_call_start",
+                    call_id=call_id,
+                    scenario=scenario_slug,
+                    candidate_id=candidate_id,
+                )
                 db_call_id = await _create_call_record(call_id, candidate_id)
-                session = DialogSession(scenario)
+
+                # Резолвим client_id и загружаем сценарий из БД (с lazy-seed из YAML).
+                async with async_session() as db:
+                    cand = (
+                        await db.get(Candidate, candidate_id) if candidate_id else None
+                    )
+                    if cand is None:
+                        log.warning("ws_candidate_missing", candidate_id=candidate_id)
+                        await ws.close(code=4400)
+                        return
+                    vacancy = await db.get(Vacancy, cand.vacancy_id)
+                    if vacancy is None:
+                        log.warning("ws_vacancy_missing", vacancy_id=cand.vacancy_id)
+                        await ws.close(code=4400)
+                        return
+                    try:
+                        scenario_dict = await load_scenario(
+                            scenario_slug, vacancy.client_id, db
+                        )
+                    except FileNotFoundError:
+                        log.warning(
+                            "ws_scenario_missing",
+                            slug=scenario_slug,
+                            client_id=vacancy.client_id,
+                        )
+                        await ws.close(code=4404)
+                        return
+
+                session = DialogSession(scenario_dict)
                 greeting = await session.get_greeting()
                 if db_call_id is not None:
                     await _append_turn(db_call_id, "agent", greeting, turn_order)

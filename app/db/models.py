@@ -33,6 +33,27 @@ class Client(Base):
 
     vacancies: Mapped[list["Vacancy"]] = relationship(back_populates="client")
     users: Mapped[list["User"]] = relationship(back_populates="client")
+    scenarios: Mapped[list["Scenario"]] = relationship(back_populates="client")
+
+
+class Scenario(Base):
+    __tablename__ = "scenarios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+    slug: Mapped[str] = mapped_column(String(100))  # уникален в рамках клиента
+    title: Mapped[str] = mapped_column(String(255))
+    agent_role: Mapped[str] = mapped_column(String(255), default="HR-помощник")
+    company_name: Mapped[str] = mapped_column(String(255))
+    vacancy_title: Mapped[str] = mapped_column(String(255))
+    questions: Mapped[list] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    client: Mapped["Client"] = relationship(back_populates="scenarios")
 
 
 class User(Base):

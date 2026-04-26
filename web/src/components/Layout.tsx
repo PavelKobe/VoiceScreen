@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Briefcase, LogOut, Mic2, Users, type LucideIcon } from "lucide-react";
+import { Briefcase, ClipboardList, LogOut, Mic2, Users, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthProvider";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/vacancies", label: "Вакансии", icon: Briefcase },
+  { to: "/scenarios", label: "Сценарии", icon: ClipboardList },
   { to: "/team", label: "Команда", icon: Users },
 ];
 
