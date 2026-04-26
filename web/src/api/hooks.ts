@@ -9,6 +9,7 @@ import type {
   CandidateRow,
   CandidatesList,
   CandidateUpdatePayload,
+  DispatchResult,
   Scenario,
   ScenarioBrief,
   ScenarioCreatePayload,
@@ -79,6 +80,19 @@ export function useDeactivateVacancy() {
   return useMutation({
     mutationFn: (id: number) => api<void>(`/vacancies/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["vacancies"] }),
+  });
+}
+
+export function useDispatchVacancy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<DispatchResult>(`/vacancies/${id}/dispatch`, { method: "POST" }),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["candidates", { vacancy_id: id }] });
+      qc.invalidateQueries({ queryKey: ["calls", { vacancy_id: id }] });
+      qc.invalidateQueries({ queryKey: ["vacancy-report", id] });
+    },
   });
 }
 

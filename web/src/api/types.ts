@@ -118,6 +118,13 @@ export interface CallEnqueued {
   task_id: string;
 }
 
+export interface DispatchResult {
+  vacancy_id: number;
+  enqueued: number;
+  skipped_already_called: number;
+  skipped_archived: number;
+}
+
 export interface Teammate {
   id: number;
   email: string;

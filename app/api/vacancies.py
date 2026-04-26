@@ -14,6 +14,7 @@ from app.api.deps import get_current_principal
 from app.core.scenario import available_scenarios
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
+from app.workers.tasks import initiate_call
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -270,4 +271,73 @@ async def vacancy_report(
         calls_with_score=calls_with_score,
         by_decision=by_decision,
         avg_score=avg_score,
+    )
+
+
+class DispatchResult(BaseModel):
+    vacancy_id: int
+    enqueued: int
+    skipped_already_called: int
+    skipped_archived: int
+
+
+@router.post("/{vacancy_id}/dispatch", response_model=DispatchResult, status_code=202)
+async def dispatch_vacancy(
+    vacancy_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> DispatchResult:
+    """Массовый запуск обзвона: ставит в очередь всех активных кандидатов
+    вакансии, у которых ещё не было звонка.
+    """
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+    if not vacancy.active:
+        raise HTTPException(status_code=400, detail="вакансия не активна")
+
+    # Все кандидаты вакансии.
+    cand_rows = (
+        await session.execute(
+            select(Candidate).where(Candidate.vacancy_id == vacancy_id)
+        )
+    ).scalars().all()
+
+    # candidate_ids у которых уже есть хотя бы один звонок (любой) — таких пропускаем.
+    called_rows = (
+        await session.execute(
+            select(Call.candidate_id)
+            .join(Candidate, Call.candidate_id == Candidate.id)
+            .where(Candidate.vacancy_id == vacancy_id)
+            .distinct()
+        )
+    ).scalars().all()
+    called_set = set(called_rows)
+
+    enqueued = 0
+    skipped_called = 0
+    skipped_archived = 0
+    for c in cand_rows:
+        if not c.active:
+            skipped_archived += 1
+            continue
+        if c.id in called_set:
+            skipped_called += 1
+            continue
+        initiate_call.delay(c.id)
+        enqueued += 1
+
+    log.info(
+        "vacancy_dispatched",
+        client_id=client.id,
+        vacancy_id=vacancy_id,
+        enqueued=enqueued,
+        skipped_already_called=skipped_called,
+        skipped_archived=skipped_archived,
+    )
+    return DispatchResult(
+        vacancy_id=vacancy_id,
+        enqueued=enqueued,
+        skipped_already_called=skipped_called,
+        skipped_archived=skipped_archived,
     )

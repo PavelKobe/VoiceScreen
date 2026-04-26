@@ -1,13 +1,22 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, PhoneOutgoing } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useVacancy, useVacancyReport } from "@/api/hooks";
+import {
+  useCandidates,
+  useDispatchVacancy,
+  useVacancy,
+  useVacancyReport,
+} from "@/api/hooks";
+import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant } from "@/lib/format";
 import { CallsTable } from "@/components/CallsTable";
 import { CandidatesTable } from "@/components/CandidatesTable";
 import { CandidatesUpload } from "@/components/CandidatesUpload";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export function VacancyDetailPage() {
   const params = useParams<{ id: string }>();
@@ -15,6 +24,17 @@ export function VacancyDetailPage() {
 
   const { data: vacancy, isLoading } = useVacancy(id);
   const { data: report } = useVacancyReport(id);
+  const { data: candidatesData } = useCandidates(id);
+  const dispatch = useDispatchVacancy();
+
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState<string | null>(null);
+
+  // Сколько активных кандидатов без ни одного звонка — кандидаты для bulk.
+  const candidates = candidatesData?.items ?? [];
+  const dispatchableCount = candidates.filter(
+    (c) => c.active && c.last_call === null,
+  ).length;
 
   if (isLoading || !vacancy) {
     return (
@@ -33,18 +53,44 @@ export function VacancyDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" />К списку вакансий
         </Link>
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{vacancy.title}</h1>
             <p className="text-sm text-muted-foreground">
               <span className="font-mono">{vacancy.scenario_name}</span> · порог {vacancy.pass_score}
             </p>
           </div>
-          <Badge variant={vacancy.active ? "success" : "secondary"}>
-            {vacancy.active ? "Активна" : "Архив"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={vacancy.active ? "success" : "secondary"}>
+              {vacancy.active ? "Активна" : "Архив"}
+            </Badge>
+            {vacancy.active && (
+              <Button
+                onClick={() => setDispatchOpen(true)}
+                disabled={dispatchableCount === 0 || dispatch.isPending}
+                title={
+                  dispatchableCount === 0
+                    ? "Нет необзвонённых кандидатов"
+                    : `Поставить в очередь ${dispatchableCount} звонков`
+                }
+              >
+                {dispatch.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <PhoneOutgoing className="h-4 w-4" />
+                )}
+                Запустить обзвон{dispatchableCount > 0 && ` (${dispatchableCount})`}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
+
+      {dispatchResult && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          {dispatchResult}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <ReportCard label="Кандидатов" value={report?.candidates_total} />
@@ -87,6 +133,30 @@ export function VacancyDetailPage() {
           <CandidatesUpload vacancyId={vacancy.id} />
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={dispatchOpen}
+        onOpenChange={setDispatchOpen}
+        title={`Запустить обзвон по ${dispatchableCount} кандидатам?`}
+        description="В очередь Celery будут поставлены звонки всем активным кандидатам, у которых ещё не было обзвона. Звонки пойдут параллельно, как Voximplant отдаёт линии. Уже обзвонённых и архивных пропустим."
+        confirmLabel="Запустить"
+        pending={dispatch.isPending}
+        onConfirm={async () => {
+          if (!id) return;
+          try {
+            const result = await dispatch.mutateAsync(id);
+            setDispatchResult(
+              `Поставлено в очередь: ${result.enqueued}. Пропущено уже обзвонённых: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`,
+            );
+            setDispatchOpen(false);
+          } catch (err) {
+            const detail = err instanceof ApiError && typeof err.detail === "string"
+              ? err.detail
+              : "Не удалось запустить обзвон";
+            setDispatchResult(detail);
+          }
+        }}
+      />
     </div>
   );
 }
