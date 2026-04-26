@@ -22,11 +22,12 @@ def _build_scoring_prompt(scenario: dict, transcript: list[dict[str, str]]) -> l
     questions = scenario.get("questions", [])
     pass_criteria = scenario.get("pass_criteria", {})
 
+    # id вопроса — из YAML (старый формат) или порядковый номер (DB-сценарии).
     questions_block = "\n".join(
-        f"- id={q['id']} (type={q.get('type', 'open')}"
+        f"- id={q.get('id') or f'q{i+1}'} (type={q.get('type', 'open')}"
         + (", required=true" if q.get("required") else "")
-        + f"): {q['text']}"
-        for q in questions
+        + f"): {q.get('text', '')}"
+        for i, q in enumerate(questions)
     )
 
     transcript_text = "\n".join(
