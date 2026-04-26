@@ -6,6 +6,7 @@ import type {
   CallEnqueued,
   CallsList,
   CandidatesList,
+  Teammate,
   UploadResult,
   Vacancy,
   VacancyReport,
@@ -135,6 +136,24 @@ export function useUploadCandidates() {
       qc.invalidateQueries({ queryKey: ["calls", { vacancy_id: vars.vacancy_id }] });
       qc.invalidateQueries({ queryKey: ["vacancy-report", vars.vacancy_id] });
     },
+  });
+}
+
+// === Team ===
+
+export function useTeam() {
+  return useQuery({
+    queryKey: ["team"],
+    queryFn: () => api<Teammate[]>("/team"),
+  });
+}
+
+export function useInviteTeammate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { email: string; password: string; role?: string }) =>
+      api<Teammate>("/team", { method: "POST", body: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["team"] }),
   });
 }
 

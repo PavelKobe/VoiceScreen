@@ -91,3 +91,11 @@ export interface CallEnqueued {
   candidate_id: number;
   task_id: string;
 }
+
+export interface Teammate {
+  id: number;
+  email: string;
+  role: string;
+  active: boolean;
+  created_at: string;
+}
