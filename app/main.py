@@ -3,6 +3,8 @@ import sys
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
 from app.config import settings
@@ -25,6 +27,25 @@ app = FastAPI(
     description="AI Voice Screening Agent for mass hiring",
     version="0.1.0",
 )
+
+if settings.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+if settings.secret_key:
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.secret_key,
+        https_only=settings.cookie_secure,
+        same_site="lax",
+        domain=settings.cookie_domain or None,
+        session_cookie="session",
+    )
 
 app.include_router(api_router, prefix="/api/v1")
 

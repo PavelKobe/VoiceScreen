@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_client
+from app.api.deps import get_current_principal
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
 from app.storage.yos import YOS_PREFIX, presign_recording
@@ -54,7 +54,7 @@ async def list_calls(
     limit: int = 20,
     offset: int = 0,
     candidate_id: int | None = None,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """List calls (newest first) for the calling client; optional candidate_id filter."""
@@ -69,7 +69,7 @@ async def list_calls(
 @router.get("/{call_id}")
 async def get_call(
     call_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Get call details including all turns and transcript."""
@@ -88,7 +88,7 @@ async def get_call(
 @router.get("/{call_id}/recording")
 async def get_call_recording(
     call_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     """302 redirect на signed URL записи звонка (Voximplant Object Storage)."""

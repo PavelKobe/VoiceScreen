@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # Empty value disables auth (for local dev only).
     ws_auth_token: str = ""
 
+    # Web session auth (SPA на app.voxscreen.ru)
+    secret_key: str = ""  # SessionMiddleware HMAC; пустое значение => session-auth отключён
+    cookie_domain: str = ".voxscreen.ru"
+    cookie_secure: bool = True
+    cors_origins: list[str] = ["https://app.voxscreen.ru"]
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

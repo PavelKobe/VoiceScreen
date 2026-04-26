@@ -32,6 +32,21 @@ class Client(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     vacancies: Mapped[list["Vacancy"]] = relationship(back_populates="client")
+    users: Mapped[list["User"]] = relationship(back_populates="client")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(30), default="client_admin")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    client: Mapped["Client"] = relationship(back_populates="users")
 
 
 class Vacancy(Base):

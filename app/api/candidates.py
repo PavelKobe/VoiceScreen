@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_client
+from app.api.deps import get_current_principal
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
 
@@ -77,7 +77,7 @@ async def upload_candidates(
     vacancy_id: int = Query(..., description="Vacancy to attach candidates to"),
     start: bool = Query(False, description="Enqueue calls immediately for new candidates"),
     file: UploadFile = File(...),
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Upload candidates from XLSX or CSV. Dedup by (vacancy_id, phone).
@@ -192,7 +192,7 @@ async def upload_candidates(
 @router.get("/{candidate_id}")
 async def get_candidate(
     candidate_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Get candidate details with call results, scoped to the calling client."""

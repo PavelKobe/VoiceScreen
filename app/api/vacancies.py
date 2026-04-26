@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_client
+from app.api.deps import get_current_principal
 from app.core.scenario import available_scenarios
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
@@ -56,7 +56,7 @@ class VacancyOut(BaseModel):
 @router.post("", response_model=VacancyOut, status_code=201)
 async def create_vacancy(
     payload: VacancyCreate,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> VacancyOut:
     vacancy = Vacancy(
@@ -91,7 +91,7 @@ async def create_vacancy(
 async def list_vacancies(
     active: bool | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> list[VacancyOut]:
     stmt = select(Vacancy).where(Vacancy.client_id == client.id)
@@ -116,7 +116,7 @@ async def list_vacancies(
 @router.get("/{vacancy_id}", response_model=VacancyOut)
 async def get_vacancy(
     vacancy_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> VacancyOut:
     vacancy = await session.get(Vacancy, vacancy_id)
@@ -137,7 +137,7 @@ async def get_vacancy(
 async def update_vacancy(
     vacancy_id: int,
     payload: VacancyUpdate,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> VacancyOut:
     vacancy = await session.get(Vacancy, vacancy_id)
@@ -180,7 +180,7 @@ async def update_vacancy(
 @router.delete("/{vacancy_id}", status_code=204)
 async def deactivate_vacancy(
     vacancy_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     vacancy = await session.get(Vacancy, vacancy_id)
@@ -208,7 +208,7 @@ class VacancyReport(BaseModel):
 @router.get("/{vacancy_id}/report", response_model=VacancyReport)
 async def vacancy_report(
     vacancy_id: int,
-    client: Client = Depends(get_current_client),
+    client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> VacancyReport:
     vacancy = await session.get(Vacancy, vacancy_id)
