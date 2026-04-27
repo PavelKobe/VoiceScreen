@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api._time import iso_utc
 from app.api.deps import get_current_principal
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
@@ -30,8 +31,8 @@ def _serialize_call(call: Call, include_turns: bool = False) -> dict:
         if candidate is not None
         else None,
         "voximplant_call_id": call.voximplant_call_id,
-        "started_at": call.started_at.isoformat() if call.started_at else None,
-        "finished_at": call.finished_at.isoformat() if call.finished_at else None,
+        "started_at": iso_utc(call.started_at),
+        "finished_at": iso_utc(call.finished_at),
         "duration": call.duration,
         "score": call.score,
         "decision": call.decision,

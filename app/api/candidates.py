@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._time import iso_utc
 from app.api.deps import get_current_principal
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
@@ -236,10 +237,10 @@ async def list_candidates(
                 "source": cand.source,
                 "status": cand.status,
                 "active": cand.active,
-                "created_at": cand.created_at.isoformat(),
+                "created_at": iso_utc(cand.created_at),
                 "last_call": {
                     "id": last_call.id,
-                    "started_at": last_call.started_at.isoformat() if last_call.started_at else None,
+                    "started_at": iso_utc(last_call.started_at),
                     "score": last_call.score,
                     "decision": last_call.decision,
                 }
@@ -394,12 +395,12 @@ async def get_candidate(
         "source": candidate.source,
         "status": candidate.status,
         "active": candidate.active,
-        "created_at": candidate.created_at.isoformat(),
+        "created_at": iso_utc(candidate.created_at),
         "calls": [
             {
                 "id": c.id,
-                "started_at": c.started_at.isoformat() if c.started_at else None,
-                "finished_at": c.finished_at.isoformat() if c.finished_at else None,
+                "started_at": iso_utc(c.started_at),
+                "finished_at": iso_utc(c.finished_at),
                 "score": c.score,
                 "decision": c.decision,
             }
