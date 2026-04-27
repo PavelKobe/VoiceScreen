@@ -131,6 +131,27 @@ def _humanize_options(opt: str) -> str:
     return s
 
 
+def format_question_text(q: dict) -> str:
+    """Готовый текст вопроса для озвучки в скриптовом режиме.
+
+    Для type=choice с options дописывает перечисление вариантов в
+    естественной речи. Для остальных типов — просто `text`.
+    """
+    text = (q.get("text") or "").strip()
+    if q.get("type") == "choice":
+        options = q.get("options") or []
+        if options:
+            humanized = [_humanize_options(o) for o in options]
+            if len(humanized) == 1:
+                joined = humanized[0]
+            elif len(humanized) == 2:
+                joined = f"{humanized[0]} или {humanized[1]}"
+            else:
+                joined = ", ".join(humanized[:-1]) + f" или {humanized[-1]}"
+            text = f"{text} Выберите: {joined}."
+    return text
+
+
 def build_greeting(scenario: dict) -> str:
     """Static intro phrase for the call (recording notice handled by first question).
 

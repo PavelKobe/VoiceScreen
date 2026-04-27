@@ -125,6 +125,42 @@ def test_transcript_records_question_ids():
     assert user_turns[1].get("question_id") == "experience"
 
 
+def test_choice_question_announces_options():
+    scenario = {
+        "agent_role": "HR",
+        "company_name": "Х",
+        "vacancy_title": "Курьер",
+        "questions": [
+            {"id": "consent", "text": "Согласны?", "type": "confirm",
+             "on_reject": "end_call"},
+            {"id": "schedule", "text": "Какой график удобен?", "type": "choice",
+             "options": ["Полная занятость", "Подработка", "Любой"]},
+        ],
+    }
+    s = DialogSession(scenario)
+    s.get_greeting()
+    r = s.process_candidate_reply("да")
+    assert "Полная занятость" in r
+    assert "Подработка" in r
+    assert "Любой" in r
+    assert "или" in r
+
+
+def test_choice_in_first_position_announces_options_in_greeting():
+    scenario = {
+        "agent_role": "HR",
+        "company_name": "Х",
+        "vacancy_title": "Курьер",
+        "questions": [
+            {"id": "schedule", "text": "Какой график удобен?", "type": "choice",
+             "options": ["Полная", "Подработка"]},
+        ],
+    }
+    s = DialogSession(scenario)
+    g = s.get_greeting()
+    assert "Полная" in g and "Подработка" in g
+
+
 def test_unclear_marker_in_history():
     s = DialogSession(_scenario())
     s.get_greeting()

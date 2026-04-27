@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import structlog
 
-from app.core.scenario import build_greeting
+from app.core.scenario import build_greeting, format_question_text
 
 log = structlog.get_logger()
 
@@ -74,7 +74,7 @@ class DialogSession:
         """
         intro = build_greeting(self.scenario)
         if self.questions:
-            first_q = self.questions[0].get("text", "").strip()
+            first_q = format_question_text(self.questions[0])
             opening = f"{intro} {first_q}".strip()
         else:
             # Сценарий без вопросов — сразу прощание.
@@ -143,7 +143,7 @@ class DialogSession:
             log.info("dialog_completed", asked=len(self.questions))
             return _FAREWELL
 
-        next_q_text = self.questions[self.current_idx].get("text", "").strip()
+        next_q_text = format_question_text(self.questions[self.current_idx])
         reply = f"{_TRANSITION_PREFIX}{next_q_text}"
         self.history.append({"role": "assistant", "content": reply})
         log.info(
