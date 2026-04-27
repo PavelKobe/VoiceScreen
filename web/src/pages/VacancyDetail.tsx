@@ -146,7 +146,7 @@ export function VacancyDetailPage() {
           try {
             const result = await dispatch.mutateAsync(id);
             const base = `Поставлено в очередь: ${result.enqueued}. Пропущено: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`;
-            const deferred = result.deferred_to
+            const deferred = result.enqueued > 0 && result.deferred_to
               ? ` Старт обзвона: ${new Date(result.deferred_to).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}.`
               : "";
             setDispatchResult(base + deferred);
