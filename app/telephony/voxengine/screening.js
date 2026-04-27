@@ -36,6 +36,8 @@ let asr = null;
 let wasConnected = false;
 let failureReported = false;
 let isPlaying = false;
+let expectingPlayback = false;
+let pendingHangup = false;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
     data = JSON.parse(VoxEngine.customData() || "{}");
@@ -64,6 +66,7 @@ VoxEngine.addEventListener(AppEvents.Started, (e) => {
 
 function onPlaybackStarted() {
     isPlaying = true;
+    expectingPlayback = false;
     if (asr) {
         try { VoxEngine.stopMediaBetween(call, asr); } catch (err) {
             Logger.write("VoiceScreen: stopMediaBetween failed: " + err);
@@ -77,6 +80,11 @@ function onPlaybackFinished() {
         try { VoxEngine.sendMediaBetween(call, asr); } catch (err) {
             Logger.write("VoiceScreen: sendMediaBetween failed: " + err);
         }
+    }
+    if (pendingHangup) {
+        Logger.write("VoiceScreen: deferred hangup after playback");
+        pendingHangup = false;
+        call.hangup();
     }
 }
 
@@ -123,10 +131,20 @@ function onWsMessage(e) {
         return;
     }
     if (msg.type === "say" && msg.text) {
+        // Помечаем, что playback вот-вот начнётся — между call.say и
+        // CallEvents.PlaybackStarted есть лаг ~50ms, и за это окно может
+        // прийти hangup. Чтобы не оборвать TTS на середине, hangup в этом
+        // окне отложится до PlaybackFinished.
+        expectingPlayback = true;
         call.say(msg.text, VoiceList.Yandex.Neural.ru_RU_alena);
     } else if (msg.type === "hangup") {
-        Logger.write("VoiceScreen: hangup requested by backend");
-        call.hangup();
+        if (isPlaying || expectingPlayback) {
+            Logger.write("VoiceScreen: hangup deferred until playback finishes");
+            pendingHangup = true;
+        } else {
+            Logger.write("VoiceScreen: hangup requested by backend");
+            call.hangup();
+        }
     }
 }
 
