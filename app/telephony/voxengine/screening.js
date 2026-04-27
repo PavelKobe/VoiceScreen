@@ -35,6 +35,7 @@ let ws = null;
 let asr = null;
 let wasConnected = false;
 let failureReported = false;
+let isPlaying = false;
 
 VoxEngine.addEventListener(AppEvents.Started, (e) => {
     data = JSON.parse(VoxEngine.customData() || "{}");
@@ -55,7 +56,29 @@ VoxEngine.addEventListener(AppEvents.Started, (e) => {
     call.addEventListener(CallEvents.Connected, onCallConnected);
     call.addEventListener(CallEvents.Disconnected, onCallDisconnected);
     call.addEventListener(CallEvents.Failed, onCallFailed);
+    // Глушим ASR на время воспроизведения агентом, иначе Yandex ASR ловит
+    // собственный TTS (echo) и присылает агентскую реплику как "ответ кандидата".
+    call.addEventListener(CallEvents.PlaybackStarted, onPlaybackStarted);
+    call.addEventListener(CallEvents.PlaybackFinished, onPlaybackFinished);
 });
+
+function onPlaybackStarted() {
+    isPlaying = true;
+    if (asr) {
+        try { VoxEngine.stopMediaBetween(call, asr); } catch (err) {
+            Logger.write("VoiceScreen: stopMediaBetween failed: " + err);
+        }
+    }
+}
+
+function onPlaybackFinished() {
+    isPlaying = false;
+    if (asr) {
+        try { VoxEngine.sendMediaBetween(call, asr); } catch (err) {
+            Logger.write("VoiceScreen: sendMediaBetween failed: " + err);
+        }
+    }
+}
 
 function onCallConnected() {
     Logger.write("VoiceScreen: call connected, opening WS");
@@ -109,6 +132,12 @@ function onWsMessage(e) {
 
 function onAsrResult(e) {
     if (!e.text) return;
+    // Защита на случай, если ASR.Result проскочил между PlaybackStarted и
+    // отключением media-пайпа (или сразу после Finished). Если играем — игнор.
+    if (isPlaying) {
+        Logger.write("VoiceScreen: dropping ASR result during playback: " + e.text);
+        return;
+    }
     if (ws && ws.readyState === "open") {
         ws.send(JSON.stringify({ type: "user_text", text: e.text }));
     }
