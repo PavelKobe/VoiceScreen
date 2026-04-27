@@ -1,28 +1,36 @@
-"""Test call script — make a debug screening call to a phone number.
+"""Simulate a screening dialog in text — no telephony, no DB.
 
 Usage:
-    python scripts/test_call.py --phone=+79991234567 --scenario=courier_screening
+    python scripts/simulate_dialog.py --phone=+79991234567 --scenario=courier_screening
+
+Прогоняет DialogSession по списку заранее заготовленных ответов кандидата
+и печатает реплики агента. Полезно, чтобы быстро проверить FSM после правок
+в app/core/dialog.py без реального звонка.
 """
 
+from __future__ import annotations
+
 import argparse
-import asyncio
 
 import structlog
+
+from app.core.dialog import DialogSession
+from app.core.scenario import load_template_yaml
 
 log = structlog.get_logger()
 
 
-async def run_test_call(phone: str, scenario: str) -> None:
-    from app.core.dialog import DialogSession
+def run_simulation(phone: str, scenario_slug: str) -> None:
+    scenario = load_template_yaml(scenario_slug)
+    if scenario is None:
+        raise SystemExit(f"scenario template '{scenario_slug}' not found in scenarios/")
 
-    log.info("test_call_start", phone=phone, scenario=scenario)
+    log.info("simulate_start", phone=phone, scenario=scenario_slug)
 
     session = DialogSession(scenario)
-    greeting = await session.get_greeting()
+    greeting = session.get_greeting()
     log.info("agent_greeting", text=greeting)
 
-    # In a real test, this would go through Voximplant telephony.
-    # For now, simulate a text-based conversation.
     test_responses = [
         "Да, согласен",
         "Да, работал курьером в Яндекс.Еде полгода",
@@ -34,24 +42,30 @@ async def run_test_call(phone: str, scenario: str) -> None:
     ]
 
     for response in test_responses:
+        if session.finished:
+            break
         log.info("candidate_says", text=response)
-        reply = await session.process_candidate_reply(response)
+        reply = session.process_candidate_reply(response)
         if reply is None:
             log.info("conversation_ended")
             break
         log.info("agent_says", text=reply)
 
     transcript = session.get_transcript()
-    log.info("test_call_complete", turns=len(transcript))
+    log.info(
+        "simulate_complete",
+        turns=len(transcript),
+        unclear=sorted(session.unclear_indices),
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="VoiceScreen test call")
-    parser.add_argument("--phone", required=True, help="Phone number to call")
-    parser.add_argument("--scenario", default="courier_screening", help="Scenario name")
+    parser = argparse.ArgumentParser(description="VoiceScreen dialog simulation")
+    parser.add_argument("--phone", required=True, help="Phone number (только для лога)")
+    parser.add_argument("--scenario", default="courier_screening", help="Scenario slug")
     args = parser.parse_args()
 
-    asyncio.run(run_test_call(args.phone, args.scenario))
+    run_simulation(args.phone, args.scenario)
 
 
 if __name__ == "__main__":
