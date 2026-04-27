@@ -95,6 +95,8 @@ class Candidate(Base):
     source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="pending")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    attempts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="candidates")

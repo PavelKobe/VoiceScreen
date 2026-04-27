@@ -41,6 +41,11 @@ async def _task_session() -> AsyncIterator[AsyncSession]:
 
 
 async def _initiate_call_async(candidate_id: int) -> dict:
+    """Гейт по лимиту попыток + инкремент при успешном старте.
+
+    Возвращает {"status": "skipped"} если кандидат уже исчерпал попытки или
+    помечен как exhausted/done — это страховка от устаревших задач в очереди.
+    """
     async with _task_session() as db:
         result = await db.execute(
             select(Candidate)
@@ -50,19 +55,51 @@ async def _initiate_call_async(candidate_id: int) -> dict:
         candidate = result.scalar_one_or_none()
         if candidate is None:
             raise ValueError(f"Candidate {candidate_id} not found")
+
+        if candidate.status in ("exhausted", "done") or not candidate.active:
+            log.info(
+                "task_initiate_call_skipped",
+                candidate_id=candidate_id,
+                status=candidate.status,
+                active=candidate.active,
+            )
+            return {"candidate_id": candidate.id, "status": "skipped"}
+
+        if candidate.attempts_count >= settings.call_max_attempts:
+            log.info(
+                "task_initiate_call_skipped_max_attempts",
+                candidate_id=candidate_id,
+                attempts_count=candidate.attempts_count,
+            )
+            candidate.status = "exhausted"
+            candidate.next_attempt_at = None
+            await db.commit()
+            return {"candidate_id": candidate.id, "status": "skipped"}
+
         vacancy: Vacancy = candidate.vacancy
+        phone = candidate.phone
+        scenario_name = vacancy.scenario_name
 
     vox_result = await originate_call(
-        candidate.phone,
+        phone,
         {
-            "scenario": vacancy.scenario_name,
-            "candidate_id": candidate.id,
+            "scenario": scenario_name,
+            "candidate_id": candidate_id,
         },
     )
+
+    async with _task_session() as db:
+        cand = await db.get(Candidate, candidate_id)
+        if cand is not None:
+            cand.attempts_count = (cand.attempts_count or 0) + 1
+            cand.status = "in_progress"
+            cand.next_attempt_at = None
+            await db.commit()
+
     return {
-        "candidate_id": candidate.id,
-        "phone": candidate.phone,
-        "scenario": vacancy.scenario_name,
+        "candidate_id": candidate_id,
+        "phone": phone,
+        "scenario": scenario_name,
         "voximplant_session_id": vox_result.get("call_session_history_id"),
         "status": "initiated",
     }
@@ -152,11 +189,3 @@ def fetch_recording(self, call_db_id: int) -> dict:
     return {"call_db_id": call_db_id, "recording_url": url}
 
 
-@celery_app.task
-def schedule_pending_calls() -> int:
-    """Periodic task: find pending candidates and enqueue calls.
-
-    TODO: respect timezone (9:00–21:00 local), max 3 attempts, rate limits.
-    """
-    log.info("task_schedule_pending_calls")
-    return 0

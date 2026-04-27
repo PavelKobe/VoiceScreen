@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 
 from app.config import settings
+from app.core.dispatch_window import next_dispatch_time
 from app.db.models import Call, Candidate
 from app.db.session import async_session
 
@@ -52,6 +53,9 @@ async def call_failed(request: Request) -> dict:
         log.warning("call_failed_webhook_no_candidate", body=body)
         return {"status": "no_candidate"}
 
+    # Импорт здесь, чтобы избежать циклической зависимости api → workers → api.
+    from app.workers.tasks import initiate_call
+
     async with async_session() as db:
         candidate = await db.get(Candidate, int(candidate_id))
         if candidate is None:
@@ -69,13 +73,41 @@ async def call_failed(request: Request) -> dict:
             score_reasoning=f"Не дозвонились ({reason})",
         )
         db.add(call)
+        await db.flush()
+
+        # Source of truth для счётчика — фактический count(*) в calls.
+        total_attempts = (
+            await db.execute(
+                select(func.count(Call.id)).where(Call.candidate_id == candidate.id)
+            )
+        ).scalar_one()
+        candidate.attempts_count = int(total_attempts)
+
+        retry_eta: datetime | None = None
+        if candidate.attempts_count < settings.call_max_attempts:
+            backoff = settings.call_retry_backoff_minutes
+            idx = min(candidate.attempts_count - 1, len(backoff) - 1)
+            delay_min = backoff[max(idx, 0)]
+            retry_eta = next_dispatch_time(now + timedelta(minutes=delay_min))
+            candidate.next_attempt_at = retry_eta
+            candidate.status = "pending"
+        else:
+            candidate.status = "exhausted"
+            candidate.next_attempt_at = None
+
         await db.commit()
         await db.refresh(call)
+
+    if retry_eta is not None:
+        initiate_call.apply_async(args=[int(candidate_id)], eta=retry_eta)
 
     log.info(
         "call_failed_recorded",
         candidate_id=candidate_id,
         call_db_id=call.id,
         reason=reason,
+        attempts_count=candidate.attempts_count if candidate else None,
+        retry_eta=retry_eta.isoformat() + "Z" if retry_eta else None,
+        exhausted=retry_eta is None,
     )
     return {"status": "ok", "call_db_id": call.id}

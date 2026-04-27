@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._time import iso_utc
 from app.api.deps import get_current_principal
+from app.config import settings
+from app.core.dispatch_window import is_within_window, next_dispatch_time
 from app.core.scenario import available_scenarios
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
@@ -279,6 +282,7 @@ class DispatchResult(BaseModel):
     enqueued: int
     skipped_already_called: int
     skipped_archived: int
+    deferred_to: str | None = None
 
 
 @router.post("/{vacancy_id}/dispatch", response_model=DispatchResult, status_code=202)
@@ -296,23 +300,31 @@ async def dispatch_vacancy(
     if not vacancy.active:
         raise HTTPException(status_code=400, detail="вакансия не активна")
 
-    # Все кандидаты вакансии.
     cand_rows = (
         await session.execute(
             select(Candidate).where(Candidate.vacancy_id == vacancy_id)
         )
     ).scalars().all()
 
-    # candidate_ids у которых уже есть хотя бы один звонок (любой) — таких пропускаем.
-    called_rows = (
+    # Кандидаты с финальным результатом (pass/reject/review) или статусом
+    # done/exhausted в bulk не попадают. Кандидат с одним только not_reached
+    # звонком и attempts_count<max — попадёт (это его вторая/третья попытка).
+    finalized_rows = (
         await session.execute(
             select(Call.candidate_id)
             .join(Candidate, Call.candidate_id == Candidate.id)
-            .where(Candidate.vacancy_id == vacancy_id)
+            .where(
+                Candidate.vacancy_id == vacancy_id,
+                Call.decision.in_(("pass", "reject", "review")),
+            )
             .distinct()
         )
     ).scalars().all()
-    called_set = set(called_rows)
+    finalized_set = set(finalized_rows)
+
+    now = datetime.utcnow()
+    eta = next_dispatch_time(now)
+    deferred = not is_within_window(now)
 
     enqueued = 0
     skipped_called = 0
@@ -321,11 +333,21 @@ async def dispatch_vacancy(
         if not c.active:
             skipped_archived += 1
             continue
-        if c.id in called_set:
+        if c.status in ("exhausted", "done"):
             skipped_called += 1
             continue
-        initiate_call.delay(c.id)
+        if c.id in finalized_set:
+            skipped_called += 1
+            continue
+        if c.attempts_count >= settings.call_max_attempts:
+            skipped_called += 1
+            continue
+        initiate_call.apply_async(args=[c.id], eta=eta)
+        c.next_attempt_at = eta
         enqueued += 1
+
+    if enqueued > 0:
+        await session.commit()
 
     log.info(
         "vacancy_dispatched",
@@ -334,10 +356,12 @@ async def dispatch_vacancy(
         enqueued=enqueued,
         skipped_already_called=skipped_called,
         skipped_archived=skipped_archived,
+        deferred=deferred,
     )
     return DispatchResult(
         vacancy_id=vacancy_id,
         enqueued=enqueued,
         skipped_already_called=skipped_called,
         skipped_archived=skipped_archived,
+        deferred_to=iso_utc(eta) if deferred else None,
     )

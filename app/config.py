@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     # Empty value disables auth (for local dev only).
     ws_auth_token: str = ""
 
+    # Dispatch / scheduler
+    call_timezone: str = "Europe/Moscow"
+    call_window_start_hour: int = 9
+    call_window_end_hour: int = 21
+    call_max_attempts: int = 3
+    call_retry_backoff_minutes: list[int] = [30, 120, 360]
+
     # Web session auth (SPA на app.voxscreen.ru)
     secret_key: str = ""  # SessionMiddleware HMAC; пустое значение => session-auth отключён
     cookie_domain: str = ".voxscreen.ru"
