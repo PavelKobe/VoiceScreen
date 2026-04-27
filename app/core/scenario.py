@@ -131,6 +131,21 @@ def _humanize_options(opt: str) -> str:
     return s
 
 
+def build_greeting(scenario: dict) -> str:
+    """Static intro phrase for the call (recording notice handled by first question).
+
+    Возвращает короткое представление агента. Уведомление о записи и
+    согласие — отдельным первым вопросом сценария (`id: consent`).
+    """
+    role = scenario.get("agent_role", "HR-помощник")
+    company = scenario.get("company_name", "компания")
+    vacancy = scenario.get("vacancy_title", "вакансия")
+    return (
+        f"Здравствуйте! Я {role} компании «{company}». "
+        f"Звоню по вашему отклику на вакансию «{vacancy}»."
+    )
+
+
 def build_system_prompt(scenario: dict) -> str:
     """Собрать system prompt для LLM из dict сценария."""
     role = scenario.get("agent_role", "HR-помощник")

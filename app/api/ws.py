@@ -154,7 +154,7 @@ async def call_ws(ws: WebSocket) -> None:
                         return
 
                 session = DialogSession(scenario_dict)
-                greeting = await session.get_greeting()
+                greeting = session.get_greeting()
                 if db_call_id is not None:
                     await _append_turn(db_call_id, "agent", greeting, turn_order)
                     turn_order += 1
@@ -168,7 +168,7 @@ async def call_ws(ws: WebSocket) -> None:
                 if db_call_id is not None and text:
                     await _append_turn(db_call_id, "candidate", text, turn_order)
                     turn_order += 1
-                reply = await session.process_candidate_reply(text)
+                reply = session.process_candidate_reply(text)
                 if reply is None:
                     # Сессия уже была завершена — кандидат продолжает говорить
                     # после прощания. Просто молча кладём трубку.
