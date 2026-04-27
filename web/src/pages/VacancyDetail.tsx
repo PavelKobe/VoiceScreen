@@ -30,11 +30,11 @@ export function VacancyDetailPage() {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [dispatchResult, setDispatchResult] = useState<string | null>(null);
 
-  // Сколько активных кандидатов без ни одного звонка — кандидаты для bulk.
+  // Кандидаты для bulk — все активные. Бэк сам пропустит финализированных
+  // (decision in pass/reject/review), exhausted'ов и тех, кто уже исчерпал
+  // попытки. Кандидаты с прошлым "not_reached" попадут на retry.
   const candidates = candidatesData?.items ?? [];
-  const dispatchableCount = candidates.filter(
-    (c) => c.active && c.last_call === null,
-  ).length;
+  const dispatchableCount = candidates.filter((c) => c.active).length;
 
   if (isLoading || !vacancy) {
     return (
@@ -138,16 +138,18 @@ export function VacancyDetailPage() {
         open={dispatchOpen}
         onOpenChange={setDispatchOpen}
         title={`Запустить обзвон по ${dispatchableCount} кандидатам?`}
-        description="В очередь Celery будут поставлены звонки всем активным кандидатам, у которых ещё не было обзвона. Звонки пойдут параллельно, как Voximplant отдаёт линии. Уже обзвонённых и архивных пропустим."
+        description="В очередь будут поставлены все активные кандидаты. Бэк автоматически пропустит уже обзвонённых (с финальным результатом) и тех, кто исчерпал попытки. Если сейчас вне окна 9:00–21:00 МСК — звонки уйдут утром."
         confirmLabel="Запустить"
         pending={dispatch.isPending}
         onConfirm={async () => {
           if (!id) return;
           try {
             const result = await dispatch.mutateAsync(id);
-            setDispatchResult(
-              `Поставлено в очередь: ${result.enqueued}. Пропущено уже обзвонённых: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`,
-            );
+            const base = `Поставлено в очередь: ${result.enqueued}. Пропущено: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`;
+            const deferred = result.deferred_to
+              ? ` Старт обзвона: ${new Date(result.deferred_to).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}.`
+              : "";
+            setDispatchResult(base + deferred);
             setDispatchOpen(false);
           } catch (err) {
             const detail = err instanceof ApiError && typeof err.detail === "string"

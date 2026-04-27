@@ -123,6 +123,7 @@ export interface DispatchResult {
   enqueued: number;
   skipped_already_called: number;
   skipped_archived: number;
+  deferred_to: string | null;
 }
 
 export interface Teammate {
