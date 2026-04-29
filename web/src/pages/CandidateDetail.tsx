@@ -132,9 +132,8 @@ export function CandidateDetailPage() {
             Позвонить
           </Button>
           {data.active &&
-            data.attempts_count > 0 &&
             data.status !== "in_progress" &&
-            !data.next_attempt_at && (
+            (data.attempts_count > 0 || data.next_attempt_at !== null) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -146,7 +145,9 @@ export function CandidateDetailPage() {
                 ) : (
                   <RotateCcw className="h-4 w-4" />
                 )}
-                Сбросить попытки
+                {data.attempts_count > 0
+                  ? "Сбросить попытки"
+                  : "Отменить запланированный"}
               </Button>
             )}
           {data.active ? (
@@ -270,16 +271,30 @@ export function CandidateDetailPage() {
       <ConfirmDialog
         open={resetOpen}
         onOpenChange={setResetOpen}
-        title="Сбросить попытки звонков?"
-        description="Счётчик попыток обнулится, кандидат снова попадёт в очередь обзвона при следующем нажатии «Запустить обзвон». История прошлых звонков и записи разговоров сохранятся."
-        confirmLabel="Сбросить"
+        title={
+          data.attempts_count > 0
+            ? "Сбросить попытки звонков?"
+            : "Отменить запланированный обзвон?"
+        }
+        description={
+          data.attempts_count > 0
+            ? "Счётчик попыток обнулится, кандидат снова попадёт в очередь при следующем нажатии «Запустить обзвон». История прошлых звонков и записи сохранятся."
+            : "Запланированная задача будет отменена — звонок не уйдёт. Кандидат вернётся в статус «Ждёт запуска». Чтобы возобновить — нажмите «Запустить обзвон» по вакансии."
+        }
+        confirmLabel={data.attempts_count > 0 ? "Сбросить" : "Отменить звонок"}
         pending={resetAttempts.isPending}
         onConfirm={async () => {
           try {
+            const wasScheduled = data.attempts_count === 0 && data.next_attempt_at !== null;
             await resetAttempts.mutateAsync(data.id);
-            toast.success("Попытки сброшены", {
-              description: "Кандидат снова в очереди обзвона",
-            });
+            toast.success(
+              wasScheduled ? "Запланированный обзвон отменён" : "Попытки сброшены",
+              {
+                description: wasScheduled
+                  ? "Кандидат вернулся в статус «Ждёт запуска»"
+                  : "Кандидат снова в очереди обзвона",
+              },
+            );
           } catch (err) {
             if (err instanceof ApiError) {
               toast.error(
