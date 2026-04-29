@@ -41,24 +41,28 @@ import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant, formatDateTime } from "@/lib/format";
 import type { CandidateRow } from "@/api/types";
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: "В очереди",
-  in_progress: "Звоним",
-  done: "Готово",
-  exhausted: "Не дозвонились",
-  // Старые значения, на случай если в БД остались — пусть тоже локализуются.
-  called: "Был обзвон",
-  failed: "Ошибка",
-};
+type BadgeVariant = "secondary" | "outline" | "warning" | "success" | "destructive";
 
-const STATUS_VARIANTS: Record<string, "secondary" | "outline" | "warning" | "success" | "destructive"> = {
-  pending: "outline",
-  in_progress: "warning",
-  done: "success",
-  exhausted: "destructive",
-  called: "secondary",
-  failed: "destructive",
-};
+/**
+ * Резолвим бейдж статуса с учётом подсостояний:
+ * - pending + next_attempt_at → "Запланирован" (синий, видно что задача стоит)
+ * - pending без next_attempt_at → "Ждёт запуска" (нейтральный outline)
+ * - in_progress / done / exhausted — стандартные цвета.
+ */
+function resolveStatusBadge(c: CandidateRow): { label: string; variant: BadgeVariant } {
+  if (c.status === "pending") {
+    return c.next_attempt_at
+      ? { label: "Запланирован", variant: "secondary" }
+      : { label: "Ждёт запуска", variant: "outline" };
+  }
+  if (c.status === "in_progress") return { label: "Звоним", variant: "warning" };
+  if (c.status === "done") return { label: "Готово", variant: "success" };
+  if (c.status === "exhausted") return { label: "Не дозвонились", variant: "destructive" };
+  // Старые значения для обратной совместимости с БД.
+  if (c.status === "called") return { label: "Был обзвон", variant: "secondary" };
+  if (c.status === "failed") return { label: "Ошибка", variant: "destructive" };
+  return { label: c.status, variant: "outline" };
+}
 
 interface Props {
   vacancyId: number;
@@ -217,6 +221,7 @@ export function CandidatesTable({ vacancyId }: Props) {
               {items.map((c) => {
                 const isCalling = pendingCalls.has(c.id);
                 const lastCall = c.last_call;
+                const badge = resolveStatusBadge(c);
                 return (
                   <TableRow key={c.id} className={c.active ? undefined : "opacity-60"}>
                     <TableCell className="text-muted-foreground">{c.id}</TableCell>
@@ -238,9 +243,7 @@ export function CandidatesTable({ vacancyId }: Props) {
                       {c.source ?? "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANTS[c.status] ?? "outline"}>
-                        {STATUS_LABELS[c.status] ?? c.status}
-                      </Badge>
+                      <Badge variant={badge.variant}>{badge.label}</Badge>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
                       {c.attempts_count} / 3
