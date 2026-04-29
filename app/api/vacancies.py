@@ -335,7 +335,9 @@ async def dispatch_vacancy(
         if c.attempts_count >= settings.call_max_attempts:
             skipped_called += 1
             continue
-        initiate_call.apply_async(args=[c.id], eta=eta)
+        initiate_call.apply_async(
+            args=[c.id], kwargs={"expect_scheduled": True}, eta=eta,
+        )
         c.next_attempt_at = eta
         enqueued += 1
 

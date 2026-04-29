@@ -99,7 +99,11 @@ async def call_failed(request: Request) -> dict:
         await db.refresh(call)
 
     if retry_eta is not None:
-        initiate_call.apply_async(args=[int(candidate_id)], eta=retry_eta)
+        initiate_call.apply_async(
+            args=[int(candidate_id)],
+            kwargs={"expect_scheduled": True},
+            eta=retry_eta,
+        )
 
     log.info(
         "call_failed_recorded",

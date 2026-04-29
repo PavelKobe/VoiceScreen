@@ -39,7 +39,7 @@ async def _task_session() -> AsyncIterator[AsyncSession]:
         await engine.dispose()
 
 
-async def _initiate_call_async(candidate_id: int) -> dict:
+async def _initiate_call_async(candidate_id: int, expect_scheduled: bool = False) -> dict:
     """Атомарный гейт по лимиту попыток + старт звонка.
 
     Один SQL UPDATE инкрементирует attempts_count, выставляет status='in_progress'
@@ -47,6 +47,14 @@ async def _initiate_call_async(candidate_id: int) -> dict:
     и attempts_count < max. Если 0 строк обновилось — задача выходит без звонка
     (страховка от гонок: одновременно стартовавшие дубликаты задач не дадут
     лишних звонков).
+
+    Параметр `expect_scheduled` отличает bulk/retry-задачи (стоят в очереди
+    с заранее заданным next_attempt_at) от одиночного звонка через
+    «Позвонить» (без расписания). Для запланированных задач гейт
+    дополнительно требует `next_attempt_at IS NOT NULL` — это даёт HR
+    реальную возможность отменить запланированный звонок: достаточно
+    обнулить next_attempt_at в БД (через reset_attempts), и стоящая в
+    Celery задача при срабатывании молча пропустится.
 
     Счётчик инкрементируется ДО успешного originate_call. Trade-off: при сетевой
     ошибке Voximplant попытка «потратится». На нашем объёме это редко и
@@ -66,15 +74,19 @@ async def _initiate_call_async(candidate_id: int) -> dict:
                 Vacancy.dispatch_paused.is_(False),
             )
         )
+        conditions = [
+            Candidate.id == candidate_id,
+            Candidate.active.is_(True),
+            Candidate.attempts_count < settings.call_max_attempts,
+            Candidate.status.notin_(("exhausted", "done")),
+            exists(active_vacancy),
+        ]
+        if expect_scheduled:
+            conditions.append(Candidate.next_attempt_at.is_not(None))
+
         result = await db.execute(
             update(Candidate)
-            .where(
-                Candidate.id == candidate_id,
-                Candidate.active.is_(True),
-                Candidate.attempts_count < settings.call_max_attempts,
-                Candidate.status.notin_(("exhausted", "done")),
-                exists(active_vacancy),
-            )
+            .where(*conditions)
             .values(
                 attempts_count=Candidate.attempts_count + 1,
                 status="in_progress",
@@ -118,16 +130,20 @@ async def _initiate_call_async(candidate_id: int) -> dict:
 
 
 @celery_app.task(bind=True, max_retries=3)
-def initiate_call(self, candidate_id: int) -> dict:
+def initiate_call(self, candidate_id: int, expect_scheduled: bool = False) -> dict:
     """Initiate a screening call to a candidate.
 
     Loads candidate + linked vacancy, fires Voximplant StartScenarios.
     The VoxEngine scenario then originates the PSTN call and opens a WS
     back to our backend, which creates the Call record on 'start'.
+
+    `expect_scheduled` — для bulk/retry задач (требуют next_attempt_at != NULL,
+    чтобы можно было отменить запланированное обзвонивание простой очисткой
+    поля). Одиночный звонок через POST /candidates/{id}/call оставляет False.
     """
-    log.info("task_initiate_call", candidate_id=candidate_id)
+    log.info("task_initiate_call", candidate_id=candidate_id, expect_scheduled=expect_scheduled)
     try:
-        return asyncio.run(_initiate_call_async(candidate_id))
+        return asyncio.run(_initiate_call_async(candidate_id, expect_scheduled=expect_scheduled))
     except Exception as exc:
         log.exception("task_initiate_call_failed", candidate_id=candidate_id, error=str(exc))
         raise self.retry(exc=exc, countdown=30)
