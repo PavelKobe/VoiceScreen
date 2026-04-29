@@ -29,6 +29,15 @@ export function WaveformPlayer({ src }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Гибридный режим: проигрывание звука через стандартный <audio>
+    // (та же аудио-цепочка, что в обычном <audio controls>), визуализация —
+    // через wavesurfer. Это убирает «голую» Web Audio передачу и оставляет
+    // привычное звучание; нормализация выключена, чтобы тихие участки
+    // (фоновый шум) не подкручивались.
+    const audio = document.createElement("audio");
+    audio.src = src;
+    audio.preload = "auto";
+
     const ws = WaveSurfer.create({
       container: containerRef.current,
       waveColor: "#cbd5e1", // slate-300
@@ -39,8 +48,8 @@ export function WaveformPlayer({ src }: Props) {
       barRadius: 2,
       barGap: 2,
       height: 64,
-      normalize: true,
-      url: src,
+      normalize: false,
+      media: audio,
     });
 
     wavesurferRef.current = ws;
