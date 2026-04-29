@@ -92,7 +92,10 @@ function onCallConnected() {
     Logger.write("VoiceScreen: call connected, opening WS");
     wasConnected = true;
 
-    try { call.record(); } catch (err) {
+    // stereo: true — агент в одном канале, кандидат в другом. Помогает
+    //   разделять голоса на слух и снижает ощущение эха в миксе.
+    // hd_audio: true — 16kHz вместо 8kHz, заметно чище согласные.
+    try { call.record({ stereo: true, hd_audio: true }); } catch (err) {
         Logger.write("VoiceScreen: record() failed: " + err);
     }
 
