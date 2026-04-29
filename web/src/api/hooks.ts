@@ -164,6 +164,18 @@ export function useArchiveCandidate() {
   });
 }
 
+export function useResetCandidateAttempts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (candidateId: number) =>
+      api<CandidateRow>(`/candidates/${candidateId}/reset_attempts`, { method: "POST" }),
+    onSuccess: (_, candidateId) => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["candidate", candidateId] });
+    },
+  });
+}
+
 export function useCallCandidate() {
   const qc = useQueryClient();
   return useMutation({

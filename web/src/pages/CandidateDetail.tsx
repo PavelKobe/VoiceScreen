@@ -7,6 +7,7 @@ import {
   Pencil,
   PhoneCall,
   PowerOff,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ import {
   useArchiveCandidate,
   useCallCandidate,
   useCandidate,
+  useResetCandidateAttempts,
   useUpdateCandidate,
 } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
@@ -39,9 +41,11 @@ export function CandidateDetailPage() {
   const callMutation = useCallCandidate();
   const archive = useArchiveCandidate();
   const update = useUpdateCandidate();
+  const resetAttempts = useResetCandidateAttempts();
 
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   if (isLoading || !data) {
@@ -123,6 +127,24 @@ export function CandidateDetailPage() {
             )}
             Позвонить
           </Button>
+          {data.active &&
+            data.attempts_count > 0 &&
+            data.status !== "in_progress" &&
+            !data.next_attempt_at && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setResetOpen(true)}
+                disabled={resetAttempts.isPending}
+              >
+                {resetAttempts.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                Сбросить попытки
+              </Button>
+            )}
           {data.active ? (
             <Button
               variant="outline"
@@ -230,6 +252,28 @@ export function CandidateDetailPage() {
         onConfirm={async () => {
           await archive.mutateAsync(data.id);
           setArchiveOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        title="Сбросить попытки звонков?"
+        description="Счётчик попыток обнулится, кандидат снова попадёт в очередь обзвона при следующем нажатии «Запустить обзвон». История прошлых звонков и записи разговоров сохранятся."
+        confirmLabel="Сбросить"
+        pending={resetAttempts.isPending}
+        onConfirm={async () => {
+          try {
+            await resetAttempts.mutateAsync(data.id);
+            setFeedback("Попытки сброшены, кандидат снова в очереди");
+          } catch (err) {
+            if (err instanceof ApiError) {
+              setFeedback(typeof err.detail === "string" ? err.detail : "Не удалось сбросить");
+            } else {
+              setFeedback("Ошибка сети");
+            }
+          }
+          setResetOpen(false);
         }}
       />
     </div>

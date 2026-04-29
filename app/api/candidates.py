@@ -340,6 +340,63 @@ async def update_candidate(
     }
 
 
+@router.post("/{candidate_id}/reset_attempts")
+async def reset_candidate_attempts(
+    candidate_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Сбросить счётчик попыток и статус кандидата для нового цикла обзвона.
+
+    Прошлые звонки и записи не трогаем — это аудит-история. После сброса
+    кандидат снова попадёт в bulk-обзвон при следующем нажатии кнопки.
+
+    Запрещено для in_progress (звонок прямо сейчас) — нет смысла сбрасывать
+    в середине разговора, и это может породить гонку с обновлением статуса
+    из ws.py.
+    """
+    stmt = (
+        select(Candidate)
+        .join(Vacancy, Candidate.vacancy_id == Vacancy.id)
+        .where(Candidate.id == candidate_id, Vacancy.client_id == client.id)
+    )
+    candidate = (await session.execute(stmt)).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    if candidate.status == "in_progress":
+        raise HTTPException(
+            status_code=409,
+            detail="нельзя сбросить попытки во время звонка",
+        )
+
+    prev_attempts = candidate.attempts_count
+    prev_status = candidate.status
+    candidate.attempts_count = 0
+    candidate.status = "pending"
+    candidate.next_attempt_at = None
+    await session.commit()
+    await session.refresh(candidate)
+
+    log.info(
+        "candidate_attempts_reset",
+        client_id=client.id,
+        candidate_id=candidate.id,
+        prev_attempts=prev_attempts,
+        prev_status=prev_status,
+    )
+    return {
+        "id": candidate.id,
+        "vacancy_id": candidate.vacancy_id,
+        "fio": candidate.fio,
+        "phone": candidate.phone,
+        "source": candidate.source,
+        "status": candidate.status,
+        "active": candidate.active,
+        "attempts_count": candidate.attempts_count,
+        "next_attempt_at": iso_utc(candidate.next_attempt_at),
+    }
+
+
 @router.delete("/{candidate_id}", status_code=204)
 async def archive_candidate(
     candidate_id: int,
