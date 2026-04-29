@@ -15,9 +15,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 import structlog
-from sqlalchemy import select
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.db.models import Call, Candidate, Vacancy
@@ -41,43 +40,49 @@ async def _task_session() -> AsyncIterator[AsyncSession]:
 
 
 async def _initiate_call_async(candidate_id: int) -> dict:
-    """Гейт по лимиту попыток + инкремент при успешном старте.
+    """Атомарный гейт по лимиту попыток + старт звонка.
 
-    Возвращает {"status": "skipped"} если кандидат уже исчерпал попытки или
-    помечен как exhausted/done — это страховка от устаревших задач в очереди.
+    Один SQL UPDATE инкрементирует attempts_count, выставляет status='in_progress'
+    и обнуляет next_attempt_at — но только если кандидат активен, не исчерпан/done
+    и attempts_count < max. Если 0 строк обновилось — задача выходит без звонка
+    (страховка от гонок: одновременно стартовавшие дубликаты задач не дадут
+    лишних звонков).
+
+    Счётчик инкрементируется ДО успешного originate_call. Trade-off: при сетевой
+    ошибке Voximplant попытка «потратится». На нашем объёме это редко и
+    предпочтительнее, чем риск 4 параллельных звонков одному кандидату.
     """
     async with _task_session() as db:
         result = await db.execute(
-            select(Candidate)
-            .options(selectinload(Candidate.vacancy))
-            .where(Candidate.id == candidate_id)
+            update(Candidate)
+            .where(
+                Candidate.id == candidate_id,
+                Candidate.active.is_(True),
+                Candidate.attempts_count < settings.call_max_attempts,
+                Candidate.status.notin_(("exhausted", "done")),
+            )
+            .values(
+                attempts_count=Candidate.attempts_count + 1,
+                status="in_progress",
+                next_attempt_at=None,
+            )
+            .returning(
+                Candidate.vacancy_id,
+                Candidate.phone,
+                Candidate.attempts_count,
+            )
         )
-        candidate = result.scalar_one_or_none()
-        if candidate is None:
-            raise ValueError(f"Candidate {candidate_id} not found")
+        row = result.first()
+        await db.commit()
 
-        if candidate.status in ("exhausted", "done") or not candidate.active:
-            log.info(
-                "task_initiate_call_skipped",
-                candidate_id=candidate_id,
-                status=candidate.status,
-                active=candidate.active,
-            )
-            return {"candidate_id": candidate.id, "status": "skipped"}
+        if row is None:
+            log.info("task_initiate_call_gate_blocked", candidate_id=candidate_id)
+            return {"candidate_id": candidate_id, "status": "skipped"}
 
-        if candidate.attempts_count >= settings.call_max_attempts:
-            log.info(
-                "task_initiate_call_skipped_max_attempts",
-                candidate_id=candidate_id,
-                attempts_count=candidate.attempts_count,
-            )
-            candidate.status = "exhausted"
-            candidate.next_attempt_at = None
-            await db.commit()
-            return {"candidate_id": candidate.id, "status": "skipped"}
-
-        vacancy: Vacancy = candidate.vacancy
-        phone = candidate.phone
+        vacancy_id, phone, attempts_count = row
+        vacancy = await db.get(Vacancy, vacancy_id)
+        if vacancy is None:
+            raise ValueError(f"Vacancy {vacancy_id} for candidate {candidate_id} not found")
         scenario_name = vacancy.scenario_name
 
     vox_result = await originate_call(
@@ -88,19 +93,12 @@ async def _initiate_call_async(candidate_id: int) -> dict:
         },
     )
 
-    async with _task_session() as db:
-        cand = await db.get(Candidate, candidate_id)
-        if cand is not None:
-            cand.attempts_count = (cand.attempts_count or 0) + 1
-            cand.status = "in_progress"
-            cand.next_attempt_at = None
-            await db.commit()
-
     return {
         "candidate_id": candidate_id,
         "phone": phone,
         "scenario": scenario_name,
         "voximplant_session_id": vox_result.get("call_session_history_id"),
+        "attempts_count": attempts_count,
         "status": "initiated",
     }
 

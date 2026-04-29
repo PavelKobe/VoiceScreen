@@ -100,6 +100,7 @@ async def call_ws(ws: WebSocket) -> None:
     session: DialogSession | None = None
     call_id: str | None = None
     db_call_id: int | None = None
+    candidate_id: int | None = None
     turn_order: int = 0
 
     try:
@@ -226,6 +227,19 @@ async def call_ws(ws: WebSocket) -> None:
                 )
             except Exception as exc:
                 log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
+            # Кандидат закрывается только при финальном решении. Если scoring
+            # упал (decision is None) — оставляем in_progress как сигнал «надо
+            # посмотреть руками».
+            if decision in ("pass", "reject", "review") and candidate_id is not None:
+                try:
+                    async with async_session() as db:
+                        cand = await db.get(Candidate, candidate_id)
+                        if cand is not None:
+                            cand.status = "done"
+                            cand.next_attempt_at = None
+                            await db.commit()
+                except Exception as exc:
+                    log.exception("ws_done_transition_failed", call_id=call_id, error=str(exc))
             try:
                 from app.workers.tasks import fetch_recording
                 fetch_recording.apply_async(args=[db_call_id], countdown=30)

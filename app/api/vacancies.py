@@ -333,7 +333,13 @@ async def dispatch_vacancy(
         if not c.active:
             skipped_archived += 1
             continue
-        if c.status in ("exhausted", "done"):
+        if c.status in ("exhausted", "done", "in_progress"):
+            # Звонок уже идёт или кандидат закрыт — пропускаем.
+            skipped_called += 1
+            continue
+        if c.next_attempt_at is not None:
+            # Уже стоит запланированная задача (от прошлого нажатия или
+            # retry-цикла). Защищает от двойных нажатий bulk-кнопки.
             skipped_called += 1
             continue
         if c.id in finalized_set:
