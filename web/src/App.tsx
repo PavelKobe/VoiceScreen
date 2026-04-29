@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { RequireAuth } from "@/auth/RequireAuth";
 import { Layout } from "@/components/Layout";
+import { DashboardPage } from "@/pages/Dashboard";
 import { LoginPage } from "@/pages/Login";
 import { VacanciesPage } from "@/pages/Vacancies";
 import { VacancyDetailPage } from "@/pages/VacancyDetail";
@@ -32,7 +33,8 @@ export default function App() {
                 </RequireAuth>
               }
             >
-              <Route path="/" element={<Navigate to="/vacancies" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/vacancies" element={<VacanciesPage />} />
               <Route path="/vacancies/:id" element={<VacancyDetailPage />} />
               <Route path="/calls/:id" element={<CallDetailPage />} />

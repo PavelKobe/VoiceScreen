@@ -131,6 +131,25 @@ export interface DispatchResult {
   deferred_to: string | null;
 }
 
+export interface DashboardData {
+  candidates_total: number;
+  calls_total: number;
+  calls_today: number;
+  active_vacancies: number;
+  avg_score: number | null;
+  by_status: Record<string, number>;
+  by_decision: Record<string, number>;
+  calls_by_day: { date: string; count: number }[];
+  recent_calls: {
+    id: number;
+    candidate_id: number;
+    candidate_fio: string;
+    started_at: string | null;
+    decision: string | null;
+    score: number | null;
+  }[];
+}
+
 export interface Teammate {
   id: number;
   email: string;

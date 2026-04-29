@@ -9,6 +9,7 @@ import type {
   CandidateRow,
   CandidatesList,
   CandidateUpdatePayload,
+  DashboardData,
   DispatchResult,
   Scenario,
   ScenarioBrief,
@@ -20,6 +21,15 @@ import type {
   Vacancy,
   VacancyReport,
 } from "./types";
+
+// === Dashboard ===
+
+export function useDashboard() {
+  return useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => api<DashboardData>("/dashboard"),
+  });
+}
 
 // === Vacancies ===
 
