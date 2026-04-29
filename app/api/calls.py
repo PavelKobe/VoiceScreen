@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -114,8 +115,14 @@ async def get_call_recording(
     call_id: int,
     client: Client = Depends(get_current_principal),
     session: AsyncSession = Depends(get_session),
-) -> RedirectResponse:
-    """302 redirect на signed URL записи звонка (Voximplant Object Storage)."""
+) -> StreamingResponse:
+    """Стримит mp3 записи звонка через бэкенд (без CORS-проблем).
+
+    Раньше был редирект на presign URL Yandex Object Storage, но
+    `<audio src>` тэг это переваривал, а wavesurfer.js (партия B)
+    использует fetch — на YOS нет CORS-заголовков, и браузер блокировал.
+    Server-side прокси решает это: клиент видит only-our-origin URL.
+    """
     stmt = _scoped_call_stmt(client.id).where(Call.id == call_id)
     result = await session.execute(stmt)
     call = result.scalar_one_or_none()
@@ -123,12 +130,26 @@ async def get_call_recording(
         raise HTTPException(status_code=404, detail="call not found")
     if not call.recording_url:
         raise HTTPException(status_code=404, detail="recording not ready")
+    if not call.recording_url.startswith(YOS_PREFIX):
+        raise HTTPException(
+            status_code=410,
+            detail="recording stored in legacy format; re-upload required",
+        )
 
-    # Новые записи лежат в YOS под yos://recordings/{id}.mp3 — генерим
-    # короткоживущий signed URL и редиректим. Старые записи (Voximplant
-    # signed URL) сейчас всё равно отвергаются их edge — даём 410.
-    if call.recording_url.startswith(YOS_PREFIX):
-        signed = presign_recording(call.recording_url, expires_seconds=3600)
-        return RedirectResponse(url=signed, status_code=302)
+    signed = presign_recording(call.recording_url, expires_seconds=3600)
 
-    raise HTTPException(status_code=410, detail="recording stored in legacy format; re-upload required")
+    async def stream() -> "AsyncIterator[bytes]":  # noqa: F821
+        async with httpx.AsyncClient(timeout=60) as http:
+            async with http.stream("GET", signed) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+                    yield chunk
+
+    return StreamingResponse(
+        stream(),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": f'inline; filename="call-{call_id}.mp3"',
+        },
+    )
