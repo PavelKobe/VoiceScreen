@@ -10,7 +10,6 @@ import {
 } from "recharts";
 import {
   Briefcase,
-  CheckCircle2,
   Loader2,
   PhoneCall,
   TrendingUp,
