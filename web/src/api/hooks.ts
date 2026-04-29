@@ -66,7 +66,9 @@ export function useUpdateVacancy() {
       changes,
     }: {
       id: number;
-      changes: Partial<Pick<Vacancy, "title" | "scenario_name" | "pass_score" | "active">>;
+      changes: Partial<
+        Pick<Vacancy, "title" | "scenario_name" | "pass_score" | "active" | "dispatch_paused">
+      >;
     }) => api<Vacancy>(`/vacancies/${id}`, { method: "PATCH", body: changes }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["vacancies"] });

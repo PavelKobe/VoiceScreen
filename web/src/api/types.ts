@@ -5,6 +5,7 @@ export interface Vacancy {
   scenario_name: string;
   pass_score: number;
   active: boolean;
+  dispatch_paused: boolean;
   created_at: string;
 }
 

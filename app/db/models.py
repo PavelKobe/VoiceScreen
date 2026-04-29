@@ -79,6 +79,9 @@ class Vacancy(Base):
     scenario_name: Mapped[str] = mapped_column(String(100))
     pass_score: Mapped[float] = mapped_column(Float, default=6.0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    dispatch_paused: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     client: Mapped["Client"] = relationship(back_populates="vacancies")

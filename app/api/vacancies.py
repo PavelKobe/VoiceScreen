@@ -34,6 +34,7 @@ class VacancyUpdate(BaseModel):
     scenario_name: str | None = Field(default=None, min_length=1, max_length=100)
     pass_score: float | None = Field(default=None, ge=0.0, le=10.0)
     active: bool | None = None
+    dispatch_paused: bool | None = None
 
 
 async def _validate_scenario_name(name: str, client_id: int, session: AsyncSession) -> str:
@@ -54,7 +55,21 @@ class VacancyOut(BaseModel):
     scenario_name: str
     pass_score: float
     active: bool
+    dispatch_paused: bool
     created_at: datetime
+
+
+def _to_vacancy_out(v: Vacancy) -> "VacancyOut":
+    return VacancyOut(
+        id=v.id,
+        client_id=v.client_id,
+        title=v.title,
+        scenario_name=v.scenario_name,
+        pass_score=v.pass_score,
+        active=v.active,
+        dispatch_paused=v.dispatch_paused,
+        created_at=v.created_at,
+    )
 
 
 @router.post("", response_model=VacancyOut, status_code=201)
@@ -83,15 +98,7 @@ async def create_vacancy(
         vacancy_id=vacancy.id,
         scenario_name=vacancy.scenario_name,
     )
-    return VacancyOut(
-        id=vacancy.id,
-        client_id=vacancy.client_id,
-        title=vacancy.title,
-        scenario_name=vacancy.scenario_name,
-        pass_score=vacancy.pass_score,
-        active=vacancy.active,
-        created_at=vacancy.created_at,
-    )
+    return _to_vacancy_out(vacancy)
 
 
 @router.get("", response_model=list[VacancyOut])
@@ -106,18 +113,7 @@ async def list_vacancies(
         stmt = stmt.where(Vacancy.active == active)
     stmt = stmt.order_by(Vacancy.id.desc()).limit(limit)
     result = await session.execute(stmt)
-    return [
-        VacancyOut(
-            id=v.id,
-            client_id=v.client_id,
-            title=v.title,
-            scenario_name=v.scenario_name,
-            pass_score=v.pass_score,
-            active=v.active,
-            created_at=v.created_at,
-        )
-        for v in result.scalars().all()
-    ]
+    return [_to_vacancy_out(v) for v in result.scalars().all()]
 
 
 @router.get("/{vacancy_id}", response_model=VacancyOut)
@@ -129,15 +125,7 @@ async def get_vacancy(
     vacancy = await session.get(Vacancy, vacancy_id)
     if vacancy is None or vacancy.client_id != client.id:
         raise HTTPException(status_code=404, detail="vacancy not found")
-    return VacancyOut(
-        id=vacancy.id,
-        client_id=vacancy.client_id,
-        title=vacancy.title,
-        scenario_name=vacancy.scenario_name,
-        pass_score=vacancy.pass_score,
-        active=vacancy.active,
-        created_at=vacancy.created_at,
-    )
+    return _to_vacancy_out(vacancy)
 
 
 @router.patch("/{vacancy_id}", response_model=VacancyOut)
@@ -165,6 +153,8 @@ async def update_vacancy(
         vacancy.pass_score = changes["pass_score"]
     if "active" in changes:
         vacancy.active = changes["active"]
+    if "dispatch_paused" in changes:
+        vacancy.dispatch_paused = changes["dispatch_paused"]
 
     await session.commit()
     await session.refresh(vacancy)
@@ -175,15 +165,7 @@ async def update_vacancy(
         vacancy_id=vacancy.id,
         fields=list(changes.keys()),
     )
-    return VacancyOut(
-        id=vacancy.id,
-        client_id=vacancy.client_id,
-        title=vacancy.title,
-        scenario_name=vacancy.scenario_name,
-        pass_score=vacancy.pass_score,
-        active=vacancy.active,
-        created_at=vacancy.created_at,
-    )
+    return _to_vacancy_out(vacancy)
 
 
 @router.delete("/{vacancy_id}", status_code=204)
@@ -299,6 +281,11 @@ async def dispatch_vacancy(
         raise HTTPException(status_code=404, detail="vacancy not found")
     if not vacancy.active:
         raise HTTPException(status_code=400, detail="вакансия не активна")
+    if vacancy.dispatch_paused:
+        raise HTTPException(
+            status_code=409,
+            detail="обзвон по вакансии приостановлен — снимите паузу, чтобы запустить",
+        )
 
     cand_rows = (
         await session.execute(

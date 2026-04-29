@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, PhoneOutgoing } from "lucide-react";
+import { ArrowLeft, Loader2, Pause, PhoneOutgoing, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   useCandidates,
   useDispatchVacancy,
+  useUpdateVacancy,
   useVacancy,
   useVacancyReport,
 } from "@/api/hooks";
@@ -26,6 +27,7 @@ export function VacancyDetailPage() {
   const { data: report } = useVacancyReport(id);
   const { data: candidatesData } = useCandidates(id);
   const dispatch = useDispatchVacancy();
+  const updateVacancy = useUpdateVacancy();
 
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [dispatchResult, setDispatchResult] = useState<string | null>(null);
@@ -64,12 +66,48 @@ export function VacancyDetailPage() {
             <Badge variant={vacancy.active ? "success" : "secondary"}>
               {vacancy.active ? "Активна" : "Архив"}
             </Badge>
+            {vacancy.active && vacancy.dispatch_paused && (
+              <Badge variant="warning">Обзвон на паузе</Badge>
+            )}
+            {vacancy.active && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void updateVacancy.mutate({
+                    id: vacancy.id,
+                    changes: { dispatch_paused: !vacancy.dispatch_paused },
+                  })
+                }
+                disabled={updateVacancy.isPending}
+                title={
+                  vacancy.dispatch_paused
+                    ? "Возобновить обзвон по вакансии"
+                    : "Приостановить обзвон — стоящие в очереди задачи будут пропущены"
+                }
+              >
+                {updateVacancy.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : vacancy.dispatch_paused ? (
+                  <Play className="h-4 w-4" />
+                ) : (
+                  <Pause className="h-4 w-4" />
+                )}
+                {vacancy.dispatch_paused ? "Возобновить" : "Приостановить"}
+              </Button>
+            )}
             {vacancy.active && (
               <Button
                 onClick={() => setDispatchOpen(true)}
-                disabled={dispatchableCount === 0 || dispatch.isPending}
+                disabled={
+                  dispatchableCount === 0 ||
+                  dispatch.isPending ||
+                  vacancy.dispatch_paused
+                }
                 title={
-                  dispatchableCount === 0
+                  vacancy.dispatch_paused
+                    ? "Обзвон приостановлен — снимите паузу"
+                    : dispatchableCount === 0
                     ? "Нет необзвонённых кандидатов"
                     : `Поставить в очередь ${dispatchableCount} звонков`
                 }

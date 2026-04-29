@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import structlog
-from sqlalchemy import update
+from sqlalchemy import exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -53,6 +53,19 @@ async def _initiate_call_async(candidate_id: int) -> dict:
     предпочтительнее, чем риск 4 параллельных звонков одному кандидату.
     """
     async with _task_session() as db:
+        # Условие гейта расширено EXISTS-проверкой: вакансия должна быть
+        # активной и не на паузе (Vacancy.dispatch_paused=False). Это даёт
+        # «горячее» отключение: уже стоящие в очереди задачи молча
+        # пропускаются после нажатия HR'ом «Приостановить обзвон» — без
+        # необходимости перебирать и удалять что-то из Celery вручную.
+        active_vacancy = (
+            select(Vacancy.id)
+            .where(
+                Vacancy.id == Candidate.vacancy_id,
+                Vacancy.active.is_(True),
+                Vacancy.dispatch_paused.is_(False),
+            )
+        )
         result = await db.execute(
             update(Candidate)
             .where(
@@ -60,6 +73,7 @@ async def _initiate_call_async(candidate_id: int) -> dict:
                 Candidate.active.is_(True),
                 Candidate.attempts_count < settings.call_max_attempts,
                 Candidate.status.notin_(("exhausted", "done")),
+                exists(active_vacancy),
             )
             .values(
                 attempts_count=Candidate.attempts_count + 1,
