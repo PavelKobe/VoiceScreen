@@ -38,8 +38,21 @@ import type { CandidateRow } from "@/api/types";
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "В очереди",
+  in_progress: "Звоним",
+  done: "Готово",
+  exhausted: "Не дозвонились",
+  // Старые значения, на случай если в БД остались — пусть тоже локализуются.
   called: "Был обзвон",
   failed: "Ошибка",
+};
+
+const STATUS_VARIANTS: Record<string, "secondary" | "outline" | "warning" | "success" | "destructive"> = {
+  pending: "outline",
+  in_progress: "warning",
+  done: "success",
+  exhausted: "destructive",
+  called: "secondary",
+  failed: "destructive",
 };
 
 interface Props {
@@ -117,6 +130,8 @@ export function CandidatesTable({ vacancyId }: Props) {
                 <TableHead>Телефон</TableHead>
                 <TableHead>Источник</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead className="text-right">Попытки</TableHead>
+                <TableHead>Следующий звонок</TableHead>
                 <TableHead>Последний звонок</TableHead>
                 <TableHead className="text-right">Score</TableHead>
                 <TableHead>Решение</TableHead>
@@ -144,8 +159,16 @@ export function CandidatesTable({ vacancyId }: Props) {
                     <TableCell className="text-sm text-muted-foreground">
                       {c.source ?? "—"}
                     </TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_VARIANTS[c.status] ?? "outline"}>
+                        {STATUS_LABELS[c.status] ?? c.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
+                      {c.attempts_count} / 3
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {STATUS_LABELS[c.status] ?? c.status}
+                      {c.next_attempt_at ? formatDateTime(c.next_attempt_at) : "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lastCall ? (

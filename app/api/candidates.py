@@ -237,6 +237,8 @@ async def list_candidates(
                 "source": cand.source,
                 "status": cand.status,
                 "active": cand.active,
+                "attempts_count": cand.attempts_count,
+                "next_attempt_at": iso_utc(cand.next_attempt_at),
                 "created_at": iso_utc(cand.created_at),
                 "last_call": {
                     "id": last_call.id,
@@ -395,6 +397,8 @@ async def get_candidate(
         "source": candidate.source,
         "status": candidate.status,
         "active": candidate.active,
+        "attempts_count": candidate.attempts_count,
+        "next_attempt_at": iso_utc(candidate.next_attempt_at),
         "created_at": iso_utc(candidate.created_at),
         "calls": [
             {

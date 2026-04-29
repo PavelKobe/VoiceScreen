@@ -74,6 +74,8 @@ export interface CandidateRow {
   source: string | null;
   status: string;
   active: boolean;
+  attempts_count: number;
+  next_attempt_at: string | null;
   created_at: string;
   last_call: {
     id: number;
@@ -96,6 +98,8 @@ export interface CandidateDetail {
   source: string | null;
   status: string;
   active: boolean;
+  attempts_count: number;
+  next_attempt_at: string | null;
   created_at: string;
   calls: {
     id: number;
