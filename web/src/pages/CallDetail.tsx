@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/Avatar";
+import { WaveformPlayer } from "@/components/WaveformPlayer";
 import { toast } from "sonner";
 import { useCall, useCallCandidate } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
@@ -110,9 +111,7 @@ export function CallDetailPage() {
             <CardTitle className="text-base">Запись разговора</CardTitle>
           </CardHeader>
           <CardContent>
-            <audio controls preload="none" src={recordingUrl} className="w-full">
-              Ваш браузер не поддерживает audio элемент.
-            </audio>
+            <WaveformPlayer src={recordingUrl} />
           </CardContent>
         </Card>
       )}

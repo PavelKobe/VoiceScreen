@@ -7,8 +7,11 @@ import {
   Pencil,
   PhoneCall,
   PowerOff,
+  Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -70,6 +73,9 @@ export function CandidatesTable({ vacancyId }: Props) {
   const [editTarget, setEditTarget] = useState<CandidateRow | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<CandidateRow | null>(null);
   const [pendingCalls, setPendingCalls] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] =
+    useState<"all" | "pending" | "in_progress" | "done" | "exhausted">("all");
 
   async function handleCall(candidate: CandidateRow) {
     setPendingCalls((prev) => new Set(prev).add(candidate.id));
@@ -99,11 +105,58 @@ export function CandidatesTable({ vacancyId }: Props) {
     );
   }
 
-  const items = data?.items ?? [];
+  const allItems = data?.items ?? [];
+
+  // Клиентский поиск/фильтр — ОК для пилота при 100+ кандидатов на вакансии.
+  // Если будут тысячи — переедет на серверный.
+  const normalizedSearch = search.trim().toLowerCase();
+  const items = allItems.filter((c) => {
+    if (statusFilter !== "all" && c.status !== statusFilter) return false;
+    if (!normalizedSearch) return true;
+    const fioMatch = c.fio.toLowerCase().includes(normalizedSearch);
+    const phoneMatch = c.phone.toLowerCase().includes(normalizedSearch);
+    return fioMatch || phoneMatch;
+  });
+
+  // Счётчики для филтр-плашек — по полному списку (без поискового среза),
+  // чтобы цифры не прыгали при наборе.
+  const counts = {
+    all: allItems.length,
+    pending: allItems.filter((c) => c.status === "pending").length,
+    in_progress: allItems.filter((c) => c.status === "in_progress").length,
+    done: allItems.filter((c) => c.status === "done").length,
+    exhausted: allItems.filter((c) => c.status === "exhausted").length,
+  };
+  const filterPills: { key: typeof statusFilter; label: string }[] = [
+    { key: "all", label: "Все" },
+    { key: "pending", label: "В очереди" },
+    { key: "in_progress", label: "Звоним" },
+    { key: "done", label: "Готово" },
+    { key: "exhausted", label: "Не дозвонились" },
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по ФИО или телефону"
+            className="pl-9 pr-9"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Очистить поиск"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
@@ -115,9 +168,32 @@ export function CandidatesTable({ vacancyId }: Props) {
         </label>
       </div>
 
+      <div className="flex flex-wrap gap-1.5">
+        {filterPills.map((p) => {
+          const active = statusFilter === p.key;
+          const count = counts[p.key];
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => setStatusFilter(p.key)}
+              className={
+                active
+                  ? "rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+                  : "rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+              }
+            >
+              {p.label} <span className="tabular-nums opacity-80">· {count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {items.length === 0 ? (
         <div className="rounded-md border bg-card p-8 text-center text-sm text-muted-foreground">
-          Кандидатов пока нет. Загрузите файл на вкладке «Загрузить кандидатов».
+          {allItems.length === 0
+            ? "Кандидатов пока нет. Загрузите файл на вкладке «Загрузить кандидатов»."
+            : "По фильтру и поиску никого не нашли. Попробуйте сбросить условия."}
         </div>
       ) : (
         <div className="rounded-lg border bg-card">
