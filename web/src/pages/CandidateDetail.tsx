@@ -74,6 +74,8 @@ export function CandidateDetailPage() {
     source: data.source,
     status: data.status,
     active: data.active,
+    attempts_count: data.attempts_count,
+    next_attempt_at: data.next_attempt_at,
     created_at: data.created_at,
     last_call: null,
   };
