@@ -20,7 +20,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Avatar } from "@/components/Avatar";
 import { CandidateDialog } from "@/components/CandidateDialog";
+import { CandidateTimeline } from "@/components/CandidateTimeline";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useArchiveCandidate,
@@ -29,6 +31,7 @@ import {
   useResetCandidateAttempts,
   useUpdateCandidate,
 } from "@/api/hooks";
+import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant, formatDateTime, formatDuration } from "@/lib/format";
 import type { CandidateRow } from "@/api/types";
@@ -46,7 +49,6 @@ export function CandidateDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
 
   if (isLoading || !data) {
     return (
@@ -57,15 +59,14 @@ export function CandidateDetailPage() {
   }
 
   async function handleCall() {
-    setFeedback(null);
     try {
       await callMutation.mutateAsync(data!.id);
-      setFeedback("Звонок поставлен в очередь");
+      toast.success("Звонок поставлен в очередь");
     } catch (err) {
       if (err instanceof ApiError) {
-        setFeedback(typeof err.detail === "string" ? err.detail : "Не удалось поставить");
+        toast.error(typeof err.detail === "string" ? err.detail : "Не удалось поставить");
       } else {
-        setFeedback("Ошибка сети");
+        toast.error("Ошибка сети");
       }
     }
   }
@@ -97,12 +98,15 @@ export function CandidateDetailPage() {
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{data.fio}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <span className="font-mono">{data.phone}</span>
-            {data.source && <span>· источник: {data.source}</span>}
-            <span>· добавлен {formatDateTime(data.created_at)}</span>
+        <div className="flex items-center gap-3">
+          <Avatar fio={data.fio} size="lg" />
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{data.fio}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <span className="font-mono">{data.phone}</span>
+              {data.source && <span>· источник: {data.source}</span>}
+              <span>· добавлен {formatDateTime(data.created_at)}</span>
+            </div>
           </div>
         </div>
 
@@ -175,7 +179,15 @@ export function CandidateDetailPage() {
         </div>
       </div>
 
-      {feedback && <p className="text-sm text-muted-foreground">{feedback}</p>}
+      <Card>
+        <CardContent className="p-4">
+          <CandidateTimeline
+            status={data.status}
+            attemptsCount={data.attempts_count}
+            hasAnyCall={data.calls.length > 0}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -265,12 +277,16 @@ export function CandidateDetailPage() {
         onConfirm={async () => {
           try {
             await resetAttempts.mutateAsync(data.id);
-            setFeedback("Попытки сброшены, кандидат снова в очереди");
+            toast.success("Попытки сброшены", {
+              description: "Кандидат снова в очереди обзвона",
+            });
           } catch (err) {
             if (err instanceof ApiError) {
-              setFeedback(typeof err.detail === "string" ? err.detail : "Не удалось сбросить");
+              toast.error(
+                typeof err.detail === "string" ? err.detail : "Не удалось сбросить",
+              );
             } else {
-              setFeedback("Ошибка сети");
+              toast.error("Ошибка сети");
             }
           }
           setResetOpen(false);

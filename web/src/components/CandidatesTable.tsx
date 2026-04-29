@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Avatar } from "@/components/Avatar";
 import { CandidateDialog } from "@/components/CandidateDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -32,6 +33,7 @@ import {
   useCallCandidate,
   useCandidates,
 } from "@/api/hooks";
+import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant, formatDateTime } from "@/lib/format";
 import type { CandidateRow } from "@/api/types";
@@ -68,19 +70,18 @@ export function CandidatesTable({ vacancyId }: Props) {
   const [editTarget, setEditTarget] = useState<CandidateRow | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<CandidateRow | null>(null);
   const [pendingCalls, setPendingCalls] = useState<Set<number>>(new Set());
-  const [error, setError] = useState<string | null>(null);
 
   async function handleCall(candidate: CandidateRow) {
-    setError(null);
     setPendingCalls((prev) => new Set(prev).add(candidate.id));
     try {
       await callMutation.mutateAsync(candidate.id);
+      toast.success("Звонок поставлен в очередь");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(typeof err.detail === "string" ? err.detail : "Не удалось поставить звонок");
-      } else {
-        setError("Ошибка сети");
-      }
+      const detail =
+        err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : "Не удалось поставить звонок";
+      toast.error(detail);
     } finally {
       setPendingCalls((prev) => {
         const next = new Set(prev);
@@ -114,8 +115,6 @@ export function CandidatesTable({ vacancyId }: Props) {
         </label>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
       {items.length === 0 ? (
         <div className="rounded-md border bg-card p-8 text-center text-sm text-muted-foreground">
           Кандидатов пока нет. Загрузите файл на вкладке «Загрузить кандидатов».
@@ -146,14 +145,17 @@ export function CandidatesTable({ vacancyId }: Props) {
                   <TableRow key={c.id} className={c.active ? undefined : "opacity-60"}>
                     <TableCell className="text-muted-foreground">{c.id}</TableCell>
                     <TableCell className="font-medium">
-                      <Link to={`/candidates/${c.id}`} className="hover:underline">
-                        {c.fio}
-                      </Link>
-                      {!c.active && (
-                        <Badge variant="secondary" className="ml-2">
-                          Архив
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <Avatar fio={c.fio} size="sm" />
+                        <Link to={`/candidates/${c.id}`} className="hover:underline">
+                          {c.fio}
+                        </Link>
+                        {!c.active && (
+                          <Badge variant="secondary" className="ml-1">
+                            Архив
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{c.phone}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">

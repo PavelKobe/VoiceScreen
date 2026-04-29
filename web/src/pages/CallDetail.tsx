@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Loader2, Phone, PhoneCall, User } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Phone, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/Avatar";
+import { toast } from "sonner";
 import { useCall, useCallCandidate } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant, formatDateTime, formatDuration } from "@/lib/format";
@@ -16,7 +18,6 @@ export function CallDetailPage() {
   const { data: call, isLoading } = useCall(id);
   const callMutation = useCallCandidate();
   const [retryStatus, setRetryStatus] = useState<"idle" | "queued" | "error">("idle");
-  const [retryError, setRetryError] = useState<string | null>(null);
 
   if (isLoading || !call) {
     return (
@@ -31,17 +32,17 @@ export function CallDetailPage() {
 
   async function handleRetry() {
     if (!candidate) return;
-    setRetryError(null);
     try {
       await callMutation.mutateAsync(candidate.id);
       setRetryStatus("queued");
+      toast.success("Звонок поставлен в очередь");
     } catch (err) {
       setRetryStatus("error");
-      if (err instanceof ApiError) {
-        setRetryError(typeof err.detail === "string" ? err.detail : "Не удалось поставить в очередь");
-      } else {
-        setRetryError("Ошибка сети");
-      }
+      const detail =
+        err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : "Не удалось поставить в очередь";
+      toast.error(detail);
     }
   }
 
@@ -56,23 +57,23 @@ export function CallDetailPage() {
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Звонок #{call.id}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            {candidate && (
-              <>
-                <span className="inline-flex items-center gap-1">
-                  <User className="h-3.5 w-3.5" />
-                  {candidate.fio}
-                </span>
+        <div className="flex items-center gap-3">
+          {candidate && <Avatar fio={candidate.fio} size="lg" />}
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {candidate ? candidate.fio : `Звонок #${call.id}`}
+            </h1>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              {candidate && (
                 <span className="inline-flex items-center gap-1">
                   <Phone className="h-3.5 w-3.5" />
                   {candidate.phone}
                 </span>
-              </>
-            )}
-            <span>· {formatDateTime(call.started_at)}</span>
-            <span>· длительность {formatDuration(call.duration)}</span>
+              )}
+              <span>{candidate ? "· " : ""}Звонок #{call.id}</span>
+              <span>· {formatDateTime(call.started_at)}</span>
+              <span>· длительность {formatDuration(call.duration)}</span>
+            </div>
           </div>
         </div>
 
@@ -102,8 +103,6 @@ export function CallDetailPage() {
           )}
         </div>
       </div>
-
-      {retryError && <p className="text-sm text-destructive">{retryError}</p>}
 
       {recordingUrl && (
         <Card>

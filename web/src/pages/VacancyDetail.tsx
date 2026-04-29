@@ -1,6 +1,18 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Pause, PhoneOutgoing, Play } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  Pause,
+  PauseCircle,
+  PhoneCall,
+  PhoneOutgoing,
+  Play,
+  TrendingUp,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,6 +24,7 @@ import {
   useVacancy,
   useVacancyReport,
 } from "@/api/hooks";
+import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant } from "@/lib/format";
 import { CallsTable } from "@/components/CallsTable";
@@ -30,7 +43,6 @@ export function VacancyDetailPage() {
   const updateVacancy = useUpdateVacancy();
 
   const [dispatchOpen, setDispatchOpen] = useState(false);
-  const [dispatchResult, setDispatchResult] = useState<string | null>(null);
 
   // Кандидаты для bulk — все активные. Бэк сам пропустит финализированных
   // (decision in pass/reject/review), exhausted'ов и тех, кто уже исчерпал
@@ -124,19 +136,43 @@ export function VacancyDetailPage() {
         </div>
       </div>
 
-      {dispatchResult && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          {dispatchResult}
+      {vacancy.active && vacancy.dispatch_paused && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-medium">Обзвон по вакансии приостановлен</div>
+            <div className="mt-0.5 text-amber-800/80">
+              Уже стоящие в очереди задачи будут пропущены, новые не запускаются.
+              Нажмите «Возобновить», чтобы продолжить.
+            </div>
+          </div>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <ReportCard label="Кандидатов" value={report?.candidates_total} />
-        <ReportCard label="Звонков" value={report?.calls_total} />
-        <ReportCard label="С оценкой" value={report?.calls_with_score} />
+        <ReportCard
+          label="Кандидатов"
+          value={report?.candidates_total}
+          icon={Users}
+          iconClassName="bg-blue-50 text-blue-600"
+        />
+        <ReportCard
+          label="Звонков"
+          value={report?.calls_total}
+          icon={PhoneCall}
+          iconClassName="bg-violet-50 text-violet-600"
+        />
+        <ReportCard
+          label="С оценкой"
+          value={report?.calls_with_score}
+          icon={CheckCircle2}
+          iconClassName="bg-emerald-50 text-emerald-600"
+        />
         <ReportCard
           label="Средний score"
           value={report?.avg_score != null ? report.avg_score.toFixed(2) : "—"}
+          icon={TrendingUp}
+          iconClassName="bg-amber-50 text-amber-600"
         />
       </div>
 
@@ -187,13 +223,17 @@ export function VacancyDetailPage() {
             const deferred = result.enqueued > 0 && result.deferred_to
               ? ` Старт обзвона: ${new Date(result.deferred_to).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}.`
               : "";
-            setDispatchResult(base + deferred);
+            if (result.enqueued > 0) {
+              toast.success("Обзвон запущен", { description: base + deferred });
+            } else {
+              toast.message("Никого не поставили", { description: base });
+            }
             setDispatchOpen(false);
           } catch (err) {
             const detail = err instanceof ApiError && typeof err.detail === "string"
               ? err.detail
               : "Не удалось запустить обзвон";
-            setDispatchResult(detail);
+            toast.error("Ошибка", { description: detail });
           }
         }}
       />
@@ -201,13 +241,30 @@ export function VacancyDetailPage() {
   );
 }
 
-function ReportCard({ label, value }: { label: string; value: number | string | undefined }) {
+function ReportCard({
+  label,
+  value,
+  icon: Icon,
+  iconClassName,
+}: {
+  label: string;
+  value: number | string | undefined;
+  icon: LucideIcon;
+  iconClassName?: string;
+}) {
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums">
-          {value ?? <span className="text-muted-foreground">—</span>}
+      <CardContent className="flex items-center gap-3 p-4">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted ${iconClassName ?? "text-muted-foreground"}`}
+        >
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+          <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+            {value ?? <span className="text-muted-foreground">—</span>}
+          </div>
         </div>
       </CardContent>
     </Card>
