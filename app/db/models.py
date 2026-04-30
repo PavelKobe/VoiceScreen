@@ -82,6 +82,12 @@ class Vacancy(Base):
     dispatch_paused: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # Опциональный per-vacancy график обзвона: список "HH:MM" строк
+    # в зоне settings.call_timezone. Например ["10:00","11:00","14:00"] —
+    # 1-я попытка в 10:00, 2-я в 11:00, 3-я в 14:00. Если NULL — fallback
+    # на глобальные settings.call_window_* + call_retry_backoff_minutes.
+    # Длина списка определяет max_attempts для этой вакансии.
+    call_slots: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     client: Mapped["Client"] = relationship(back_populates="vacancies")

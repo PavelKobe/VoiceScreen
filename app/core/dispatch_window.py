@@ -44,3 +44,59 @@ def next_dispatch_time(after_utc: datetime) -> datetime:
         target_local = start_today + timedelta(days=1)
 
     return target_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def slot_eta(hhmm: str, after_utc: datetime) -> datetime:
+    """Ближайшее `HH:MM` локального времени строго не раньше `after_utc`.
+
+    Если момент уже прошёл сегодня — берём завтра. Возвращает naive UTC.
+    """
+    zone = _zone()
+    local = after_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(zone)
+    h, m = (int(x) for x in hhmm.split(":"))
+    candidate = local.replace(hour=h, minute=m, second=0, microsecond=0)
+    if candidate <= local:
+        candidate += timedelta(days=1)
+    return candidate.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def schedule_next_attempt(
+    call_slots: list[str] | None,
+    attempts_count: int,
+    after_utc: datetime,
+) -> datetime | None:
+    """Eta для попытки № `attempts_count + 1`. Возвращает None, если попытки
+    исчерпаны (для exhausted-перехода).
+
+    `call_slots` — кастомное расписание вакансии (`["10:00","11:00",...]`)
+    или None для глобального fallback'а. `attempts_count` — сколько попыток
+    уже было сделано (после-инкрементальное значение).
+
+    Кастомные слоты:
+      - индекс следующей попытки = attempts_count;
+      - если attempts_count >= len(slots) — попыток больше нет, None.
+    Fallback (когда slots=None):
+      - первая попытка (attempts_count=0): `next_dispatch_time(now)`.
+      - retry: `next_dispatch_time(now + backoff[idx])`.
+      - после `settings.call_max_attempts` — None.
+    """
+    if call_slots:
+        if attempts_count >= len(call_slots):
+            return None
+        return slot_eta(call_slots[attempts_count], after_utc)
+
+    if attempts_count >= settings.call_max_attempts:
+        return None
+    if attempts_count == 0:
+        return next_dispatch_time(after_utc)
+    backoff = settings.call_retry_backoff_minutes
+    idx = min(attempts_count - 1, len(backoff) - 1)
+    delay_min = backoff[max(idx, 0)]
+    return next_dispatch_time(after_utc + timedelta(minutes=delay_min))
+
+
+def effective_max_attempts(call_slots: list[str] | None) -> int:
+    """Эффективный лимит попыток для вакансии."""
+    if call_slots:
+        return len(call_slots)
+    return settings.call_max_attempts

@@ -72,6 +72,12 @@ export function VacancyDetailPage() {
             <h1 className="text-2xl font-semibold tracking-tight">{vacancy.title}</h1>
             <p className="text-sm text-muted-foreground">
               <span className="font-mono">{vacancy.scenario_name}</span> · порог {vacancy.pass_score}
+              {vacancy.call_slots && vacancy.call_slots.length > 0 && (
+                <>
+                  {" · график "}
+                  <span className="font-mono">{vacancy.call_slots.join(", ")}</span>
+                </>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">

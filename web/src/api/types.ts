@@ -6,6 +6,7 @@ export interface Vacancy {
   pass_score: number;
   active: boolean;
   dispatch_paused: boolean;
+  call_slots: string[] | null;
   created_at: string;
 }
 

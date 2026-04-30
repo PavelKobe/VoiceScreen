@@ -62,8 +62,12 @@ export function useVacancyReport(id: number | null) {
 export function useCreateVacancy() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { title: string; scenario_name: string; pass_score: number }) =>
-      api<Vacancy>("/vacancies", { method: "POST", body: payload }),
+    mutationFn: (payload: {
+      title: string;
+      scenario_name: string;
+      pass_score: number;
+      call_slots?: string[] | null;
+    }) => api<Vacancy>("/vacancies", { method: "POST", body: payload }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["vacancies"] }),
   });
 }
@@ -77,7 +81,10 @@ export function useUpdateVacancy() {
     }: {
       id: number;
       changes: Partial<
-        Pick<Vacancy, "title" | "scenario_name" | "pass_score" | "active" | "dispatch_paused">
+        Pick<
+          Vacancy,
+          "title" | "scenario_name" | "pass_score" | "active" | "dispatch_paused" | "call_slots"
+        >
       >;
     }) => api<Vacancy>(`/vacancies/${id}`, { method: "PATCH", body: changes }),
     onSuccess: (_, vars) => {

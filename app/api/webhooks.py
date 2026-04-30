@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.core.dispatch_window import next_dispatch_time
+from app.core.dispatch_window import schedule_next_attempt
 from app.db.models import Call, Candidate
 from app.db.session import async_session
 
@@ -57,7 +58,14 @@ async def call_failed(request: Request) -> dict:
     from app.workers.tasks import initiate_call
 
     async with async_session() as db:
-        candidate = await db.get(Candidate, int(candidate_id))
+        # Загружаем кандидата вместе с вакансией — нужны её call_slots
+        # для расписания следующей попытки.
+        cand_q = await db.execute(
+            select(Candidate)
+            .options(selectinload(Candidate.vacancy))
+            .where(Candidate.id == int(candidate_id))
+        )
+        candidate = cand_q.scalar_one_or_none()
         if candidate is None:
             log.warning("call_failed_webhook_candidate_missing", candidate_id=candidate_id)
             return {"status": "candidate_not_found"}
@@ -83,12 +91,12 @@ async def call_failed(request: Request) -> dict:
         ).scalar_one()
         candidate.attempts_count = int(total_attempts)
 
-        retry_eta: datetime | None = None
-        if candidate.attempts_count < settings.call_max_attempts:
-            backoff = settings.call_retry_backoff_minutes
-            idx = min(candidate.attempts_count - 1, len(backoff) - 1)
-            delay_min = backoff[max(idx, 0)]
-            retry_eta = next_dispatch_time(now + timedelta(minutes=delay_min))
+        retry_eta = schedule_next_attempt(
+            candidate.vacancy.call_slots if candidate.vacancy else None,
+            attempts_count=candidate.attempts_count,
+            after_utc=now,
+        )
+        if retry_eta is not None:
             candidate.next_attempt_at = retry_eta
             candidate.status = "pending"
         else:

@@ -31,6 +31,7 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
   const [title, setTitle] = useState("");
   const [scenarioName, setScenarioName] = useState("");
   const [passScore, setPassScore] = useState(6);
+  const [callSlotsRaw, setCallSlotsRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,13 +39,26 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
       setTitle(vacancy.title);
       setScenarioName(vacancy.scenario_name);
       setPassScore(vacancy.pass_score);
+      setCallSlotsRaw(vacancy.call_slots ? vacancy.call_slots.join(", ") : "");
     } else if (open && !vacancy) {
       setTitle("");
       setScenarioName(scenarios?.[0]?.slug ?? "");
       setPassScore(6);
+      setCallSlotsRaw("");
     }
     if (open) setError(null);
   }, [open, vacancy, scenarios]);
+
+  /** Парсит строку "10:00, 11:00, 14:00" в массив; пусто → null. */
+  function parseSlots(raw: string): string[] | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const parts = trimmed
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts;
+  }
 
   const submitting = create.isPending || update.isPending;
 
@@ -52,13 +66,19 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
     e.preventDefault();
     setError(null);
     try {
+      const slots = parseSlots(callSlotsRaw);
       if (editing && vacancy) {
         await update.mutateAsync({
           id: vacancy.id,
-          changes: { title, pass_score: passScore },
+          changes: { title, pass_score: passScore, call_slots: slots },
         });
       } else {
-        await create.mutateAsync({ title, scenario_name: scenarioName, pass_score: passScore });
+        await create.mutateAsync({
+          title,
+          scenario_name: scenarioName,
+          pass_score: passScore,
+          call_slots: slots,
+        });
       }
       onOpenChange(false);
     } catch (err) {
@@ -152,6 +172,24 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
               required
               disabled={submitting}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="call-slots">График обзвона (необязательно)</Label>
+            <Input
+              id="call-slots"
+              value={callSlotsRaw}
+              onChange={(e) => setCallSlotsRaw(e.target.value)}
+              placeholder="10:00, 11:00, 14:00"
+              disabled={submitting}
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Время попыток в МСК через запятую: 1-я попытка → первый слот, 2-я → второй и т.д.
+              Количество слотов = максимум попыток для этой вакансии.
+              Если оставить пустым — действуют общие правила (9:00–21:00, до 3 попыток
+              с паузой 30 мин и 2 ч между ними).
+            </p>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

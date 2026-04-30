@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api._time import iso_utc
 from app.api.deps import get_current_principal
-from app.config import settings
-from app.core.dispatch_window import is_within_window, next_dispatch_time
+from app.core.dispatch_window import (
+    effective_max_attempts,
+    schedule_next_attempt,
+)
 from app.core.scenario import available_scenarios
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
@@ -23,10 +25,35 @@ router = APIRouter()
 log = structlog.get_logger()
 
 
+_HHMM_RE = __import__("re").compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_call_slots(value: list[str] | None) -> list[str] | None:
+    """Проверка `["10:00","11:00",...]`: каждый — HH:MM, отсортированы по
+    возрастанию, без дубликатов, длина 1..10. None — без кастомного графика.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("call_slots must be a list of HH:MM strings")
+    if not (1 <= len(value) <= 10):
+        raise ValueError("call_slots must contain 1 to 10 entries")
+    for slot in value:
+        if not isinstance(slot, str) or not _HHMM_RE.match(slot):
+            raise ValueError(f"slot '{slot}' is not in HH:MM format (00:00–23:59)")
+    if len(set(value)) != len(value):
+        raise ValueError("call_slots must not contain duplicates")
+    sorted_slots = sorted(value)
+    if value != sorted_slots:
+        raise ValueError("call_slots must be sorted ascending (e.g. 10:00, 11:00, 14:00)")
+    return value
+
+
 class VacancyCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     scenario_name: str = Field(..., min_length=1, max_length=100)
     pass_score: float = Field(default=6.0, ge=0.0, le=10.0)
+    call_slots: list[str] | None = None
 
 
 class VacancyUpdate(BaseModel):
@@ -35,6 +62,7 @@ class VacancyUpdate(BaseModel):
     pass_score: float | None = Field(default=None, ge=0.0, le=10.0)
     active: bool | None = None
     dispatch_paused: bool | None = None
+    call_slots: list[str] | None = None
 
 
 async def _validate_scenario_name(name: str, client_id: int, session: AsyncSession) -> str:
@@ -56,6 +84,7 @@ class VacancyOut(BaseModel):
     pass_score: float
     active: bool
     dispatch_paused: bool
+    call_slots: list[str] | None = None
     created_at: datetime
 
 
@@ -68,6 +97,7 @@ def _to_vacancy_out(v: Vacancy) -> "VacancyOut":
         pass_score=v.pass_score,
         active=v.active,
         dispatch_paused=v.dispatch_paused,
+        call_slots=v.call_slots,
         created_at=v.created_at,
     )
 
@@ -81,12 +111,17 @@ async def create_vacancy(
     scenario_slug = await _validate_scenario_name(
         payload.scenario_name, client.id, session
     )
+    try:
+        slots = _validate_call_slots(payload.call_slots)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     vacancy = Vacancy(
         client_id=client.id,
         title=payload.title.strip(),
         scenario_name=scenario_slug,
         pass_score=payload.pass_score,
         active=True,
+        call_slots=slots,
     )
     session.add(vacancy)
     await session.commit()
@@ -155,6 +190,11 @@ async def update_vacancy(
         vacancy.active = changes["active"]
     if "dispatch_paused" in changes:
         vacancy.dispatch_paused = changes["dispatch_paused"]
+    if "call_slots" in changes:
+        try:
+            vacancy.call_slots = _validate_call_slots(changes["call_slots"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     await session.commit()
     await session.refresh(vacancy)
@@ -310,8 +350,18 @@ async def dispatch_vacancy(
     finalized_set = set(finalized_rows)
 
     now = datetime.utcnow()
-    eta = next_dispatch_time(now)
-    deferred = not is_within_window(now)
+    # Eta зависит от настроек вакансии: если call_slots задан — первая
+    # попытка идёт в slots[0], иначе — в ближайший момент окна.
+    eta = schedule_next_attempt(vacancy.call_slots, attempts_count=0, after_utc=now)
+    if eta is None:
+        # Может произойти только если call_slots=[] (пустой список) — это
+        # валидно как «не звонить вообще», но bulk при этом пуст.
+        raise HTTPException(
+            status_code=400,
+            detail="у вакансии не задано ни одного слота обзвона",
+        )
+    deferred = eta > now
+    max_attempts = effective_max_attempts(vacancy.call_slots)
 
     enqueued = 0
     skipped_called = 0
@@ -332,7 +382,7 @@ async def dispatch_vacancy(
         if c.id in finalized_set:
             skipped_called += 1
             continue
-        if c.attempts_count >= settings.call_max_attempts:
+        if c.attempts_count >= max_attempts:
             skipped_called += 1
             continue
         initiate_call.apply_async(
