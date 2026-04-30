@@ -124,7 +124,21 @@ ssh voicescreen "chmod -R u+rwX,go+rX /var/www/voxscreen-app/"
 Сначала бэк (§2.1), потом фронт (§2.2). Порядок важен — UI может
 ходить в новые ручки, которых ещё нет в старом бэке.
 
-### 2.4 Если правил VoxEngine `screening.js`
+### 2.4 Прогнать тесты на VM
+
+Юнит-тесты гоняются вне docker — нужен активированный `.venv`:
+
+```bash
+ssh voicescreen
+cd ~/VoiceScreen
+source .venv/bin/activate
+make test
+```
+
+Ожидаем все кейсы в `tests/` зелёными. После успеха — деплой по
+§2.1/§2.2/§2.3.
+
+### 2.5 Если правил VoxEngine `screening.js`
 
 ⚠️ Этот файл **не** деплоится через `git pull` — он исполняется на стороне
 Voximplant, не на нашей VM.
