@@ -74,11 +74,17 @@ async def _initiate_call_async(candidate_id: int, expect_scheduled: bool = False
                 Vacancy.dispatch_paused.is_(False),
             )
         )
+        # Гейт строго на status == 'pending'. Это закрывает гонку, которая
+        # пропускала параллельные задачи: после первого UPDATE строка
+        # становится in_progress, и второй UPDATE при переоценке WHERE на
+        # свежем состоянии увидит status != 'pending' и обновит 0 строк.
+        # webhook /call_failed и /reset_attempts перед своим retry'ем
+        # явно ставят status='pending', так что retry-цикл проходит.
         conditions = [
             Candidate.id == candidate_id,
             Candidate.active.is_(True),
+            Candidate.status == "pending",
             Candidate.attempts_count < settings.call_max_attempts,
-            Candidate.status.notin_(("exhausted", "done")),
             exists(active_vacancy),
         ]
         if expect_scheduled:

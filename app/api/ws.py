@@ -19,13 +19,15 @@ see app/telephony/CLAUDE.md.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.core.dialog import DialogSession
+from app.core.dispatch_window import next_dispatch_time
 from app.core.scenario import load_scenario
 from app.core.scoring import score_call
 from app.db.models import Call, CallTurn, Candidate, Vacancy
@@ -92,6 +94,67 @@ async def _finalize_call(
 def _format_transcript(history: list[dict[str, str]]) -> str:
     label = {"assistant": "agent", "user": "candidate"}
     return "\n".join(f"{label.get(m['role'], m['role'])}: {m['content']}" for m in history)
+
+
+async def _schedule_silent_retry(candidate_id: int, call_id: str | None) -> None:
+    """После «молчаливого» звонка планируем retry — та же логика, что в
+    webhook /call_failed: count(*) calls = source of truth, при <max попыток
+    eta=now+backoff с уважением к окну, при >=max — exhausted.
+    """
+    # Импорт здесь — circular import workers→api→workers иначе.
+    from app.workers.tasks import initiate_call
+
+    try:
+        async with async_session() as db:
+            candidate = await db.get(Candidate, candidate_id)
+            if candidate is None:
+                log.warning("ws_silent_retry_candidate_missing", candidate_id=candidate_id)
+                return
+
+            now = datetime.utcnow()
+            total_attempts = (
+                await db.execute(
+                    select(func.count(Call.id)).where(Call.candidate_id == candidate_id)
+                )
+            ).scalar_one()
+            candidate.attempts_count = int(total_attempts)
+
+            retry_eta: datetime | None = None
+            if candidate.attempts_count < settings.call_max_attempts:
+                backoff = settings.call_retry_backoff_minutes
+                idx = min(candidate.attempts_count - 1, len(backoff) - 1)
+                delay_min = backoff[max(idx, 0)]
+                retry_eta = next_dispatch_time(now + timedelta(minutes=delay_min))
+                candidate.next_attempt_at = retry_eta
+                candidate.status = "pending"
+            else:
+                candidate.status = "exhausted"
+                candidate.next_attempt_at = None
+
+            await db.commit()
+
+        if retry_eta is not None:
+            initiate_call.apply_async(
+                args=[candidate_id],
+                kwargs={"expect_scheduled": True},
+                eta=retry_eta,
+            )
+
+        log.info(
+            "ws_silent_retry_scheduled",
+            call_id=call_id,
+            candidate_id=candidate_id,
+            attempts_count=int(total_attempts),
+            retry_eta=retry_eta.isoformat() + "Z" if retry_eta else None,
+            exhausted=retry_eta is None,
+        )
+    except Exception as exc:
+        log.exception(
+            "ws_silent_retry_failed",
+            call_id=call_id,
+            candidate_id=candidate_id,
+            error=str(exc),
+        )
 
 
 @router.websocket("/call")
@@ -198,48 +261,78 @@ async def call_ws(ws: WebSocket) -> None:
         log.exception("ws_error", call_id=call_id, error=str(exc))
     finally:
         if session is not None and db_call_id is not None:
-            transcript_text = _format_transcript(session.get_transcript())
-            score: float | None = None
-            decision: str | None = None
-            reasoning: str | None = None
-            answers: dict | None = None
-            try:
-                result = await score_call(session.scenario, session.get_transcript())
-                raw_score = result.get("score")
-                if isinstance(raw_score, (int, float)):
-                    score = float(raw_score)
-                raw_decision = result.get("decision")
-                if isinstance(raw_decision, str):
-                    decision = raw_decision
-                raw_reasoning = result.get("reasoning")
-                if isinstance(raw_reasoning, str):
-                    reasoning = raw_reasoning
-                raw_answers = result.get("answers")
-                if isinstance(raw_answers, dict):
-                    answers = raw_answers
-            except Exception as exc:
-                log.exception("ws_scoring_failed", call_id=call_id, error=str(exc))
-            try:
-                await _finalize_call(
-                    db_call_id, transcript_text,
-                    score=score, decision=decision,
-                    reasoning=reasoning, answers=answers,
+            transcript = session.get_transcript()
+            transcript_text = _format_transcript(transcript)
+            user_turns_count = sum(1 for t in transcript if t.get("role") == "user")
+
+            if user_turns_count == 0:
+                # Соединение состоялось (Voximplant видел Connected), но
+                # кандидат не сказал ни слова — voicemail/долгие гудки и т.п.
+                # Не зовём LLM (он бы вернул reject на пустоте), а сразу
+                # помечаем как not_reached и отправляем в retry-цикл.
+                log.info(
+                    "ws_silent_call_treated_as_not_reached",
+                    call_id=call_id,
+                    candidate_id=candidate_id,
                 )
-            except Exception as exc:
-                log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
-            # Кандидат закрывается только при финальном решении. Если scoring
-            # упал (decision is None) — оставляем in_progress как сигнал «надо
-            # посмотреть руками».
-            if decision in ("pass", "reject", "review") and candidate_id is not None:
                 try:
-                    async with async_session() as db:
-                        cand = await db.get(Candidate, candidate_id)
-                        if cand is not None:
-                            cand.status = "done"
-                            cand.next_attempt_at = None
-                            await db.commit()
+                    await _finalize_call(
+                        db_call_id,
+                        transcript_text,
+                        score=None,
+                        decision="not_reached",
+                        reasoning="Кандидат не ответил (соединение было, но речи не зафиксировано)",
+                        answers=None,
+                    )
                 except Exception as exc:
-                    log.exception("ws_done_transition_failed", call_id=call_id, error=str(exc))
+                    log.exception(
+                        "ws_finalize_failed_silent", call_id=call_id, error=str(exc),
+                    )
+                if candidate_id is not None:
+                    await _schedule_silent_retry(int(candidate_id), call_id)
+            else:
+                # Обычный путь: есть реплики кандидата, скорим через LLM.
+                score: float | None = None
+                decision: str | None = None
+                reasoning: str | None = None
+                answers: dict | None = None
+                try:
+                    result = await score_call(session.scenario, transcript)
+                    raw_score = result.get("score")
+                    if isinstance(raw_score, (int, float)):
+                        score = float(raw_score)
+                    raw_decision = result.get("decision")
+                    if isinstance(raw_decision, str):
+                        decision = raw_decision
+                    raw_reasoning = result.get("reasoning")
+                    if isinstance(raw_reasoning, str):
+                        reasoning = raw_reasoning
+                    raw_answers = result.get("answers")
+                    if isinstance(raw_answers, dict):
+                        answers = raw_answers
+                except Exception as exc:
+                    log.exception("ws_scoring_failed", call_id=call_id, error=str(exc))
+                try:
+                    await _finalize_call(
+                        db_call_id, transcript_text,
+                        score=score, decision=decision,
+                        reasoning=reasoning, answers=answers,
+                    )
+                except Exception as exc:
+                    log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
+                # Кандидат закрывается только при финальном решении. Если scoring
+                # упал (decision is None) — оставляем in_progress как сигнал «надо
+                # посмотреть руками».
+                if decision in ("pass", "reject", "review") and candidate_id is not None:
+                    try:
+                        async with async_session() as db:
+                            cand = await db.get(Candidate, candidate_id)
+                            if cand is not None:
+                                cand.status = "done"
+                                cand.next_attempt_at = None
+                                await db.commit()
+                    except Exception as exc:
+                        log.exception("ws_done_transition_failed", call_id=call_id, error=str(exc))
             try:
                 from app.workers.tasks import fetch_recording
                 fetch_recording.apply_async(args=[db_call_id], countdown=30)
