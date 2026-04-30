@@ -171,6 +171,13 @@ docker image prune -f
 docker compose exec postgres psql -U voicescreen -d voicescreen -c \
   "SELECT version_num FROM alembic_version;"
 
+# запланированные задачи в Celery (bulk-обзвон, retry)
+# eta показывается в зоне worker'а (Europe/Moscow)
+docker compose exec worker celery -A app.workers.celery_app inspect scheduled
+
+# что worker крутит прямо сейчас
+docker compose exec worker celery -A app.workers.celery_app inspect active
+
 # создать пользователя кабинета
 ADMIN=$(grep '^ADMIN_API_KEY=' .env | cut -d= -f2-)
 curl -X POST https://voxscreen.ru/api/v1/clients/3/users \
