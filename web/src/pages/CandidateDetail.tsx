@@ -6,7 +6,6 @@ import {
   Loader2,
   Pencil,
   PhoneCall,
-  PhoneForwarded,
   PowerOff,
   RotateCcw,
 } from "lucide-react";
@@ -27,7 +26,6 @@ import { CandidateTimeline } from "@/components/CandidateTimeline";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useArchiveCandidate,
-  useCallCandidate,
   useCallCandidateNow,
   useCandidate,
   useResetCandidateAttempts,
@@ -43,7 +41,6 @@ export function CandidateDetailPage() {
   const id = params.id ? Number(params.id) : null;
 
   const { data, isLoading } = useCandidate(id);
-  const callMutation = useCallCandidate();
   const callNowMutation = useCallCandidateNow();
   const archive = useArchiveCandidate();
   const update = useUpdateCandidate();
@@ -59,19 +56,6 @@ export function CandidateDetailPage() {
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
-  }
-
-  async function handleCall() {
-    try {
-      await callMutation.mutateAsync(data!.id);
-      toast.success("Звонок поставлен в очередь");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        toast.error(typeof err.detail === "string" ? err.detail : "Не удалось поставить");
-      } else {
-        toast.error("Ошибка сети");
-      }
-    }
   }
 
   async function handleCallNow() {
@@ -137,19 +121,6 @@ export function CandidateDetailPage() {
             Изменить
           </Button>
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleCall()}
-            disabled={!data.active || callMutation.isPending}
-          >
-            {callMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <PhoneCall className="h-4 w-4" />
-            )}
-            Позвонить
-          </Button>
-          <Button
             size="sm"
             onClick={() => void handleCallNow()}
             disabled={
@@ -157,14 +128,14 @@ export function CandidateDetailPage() {
               data.status === "in_progress" ||
               callNowMutation.isPending
             }
-            title="Сбросить счётчик попыток и позвонить немедленно (для тестов / ручных перезвонов)"
+            title="Сбрасывает счётчик попыток и шлёт звонок немедленно. Для запланированного обзвона по графику используйте «Запустить обзвон» на вакансии."
           >
             {callNowMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <PhoneForwarded className="h-4 w-4" />
+              <PhoneCall className="h-4 w-4" />
             )}
-            Позвонить сейчас
+            Позвонить
           </Button>
           {data.active &&
             data.status !== "in_progress" &&

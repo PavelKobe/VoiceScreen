@@ -6,7 +6,6 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneCall,
-  PhoneForwarded,
   PowerOff,
   Search,
   X,
@@ -34,7 +33,6 @@ import { CandidateDialog } from "@/components/CandidateDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useArchiveCandidate,
-  useCallCandidate,
   useCallCandidateNow,
   useCandidates,
 } from "@/api/hooks";
@@ -73,7 +71,6 @@ interface Props {
 export function CandidatesTable({ vacancyId }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const { data, isLoading } = useCandidates(vacancyId, { includeArchived: showArchived });
-  const callMutation = useCallCandidate();
   const callNowMutation = useCallCandidateNow();
   const archive = useArchiveCandidate();
 
@@ -83,26 +80,6 @@ export function CandidatesTable({ vacancyId }: Props) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] =
     useState<"all" | "pending" | "in_progress" | "done" | "exhausted">("all");
-
-  async function handleCall(candidate: CandidateRow) {
-    setPendingCalls((prev) => new Set(prev).add(candidate.id));
-    try {
-      await callMutation.mutateAsync(candidate.id);
-      toast.success("Звонок поставлен в очередь");
-    } catch (err) {
-      const detail =
-        err instanceof ApiError && typeof err.detail === "string"
-          ? err.detail
-          : "Не удалось поставить звонок";
-      toast.error(detail);
-    } finally {
-      setPendingCalls((prev) => {
-        const next = new Set(prev);
-        next.delete(candidate.id);
-        return next;
-      });
-    }
-  }
 
   async function handleCallNow(candidate: CandidateRow) {
     setPendingCalls((prev) => new Set(prev).add(candidate.id));
@@ -319,16 +296,10 @@ export function CandidatesTable({ vacancyId }: Props) {
                             <Pencil className="h-4 w-4" />
                             Изменить
                           </DropdownMenuItem>
-                          {c.active && (
-                            <DropdownMenuItem onSelect={() => void handleCall(c)}>
-                              <PhoneCall className="h-4 w-4" />
-                              Позвонить
-                            </DropdownMenuItem>
-                          )}
                           {c.active && c.status !== "in_progress" && (
                             <DropdownMenuItem onSelect={() => void handleCallNow(c)}>
-                              <PhoneForwarded className="h-4 w-4" />
-                              Позвонить сейчас (force)
+                              <PhoneCall className="h-4 w-4" />
+                              Позвонить
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
