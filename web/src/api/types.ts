@@ -1,3 +1,5 @@
+export type NotifyOn = "all" | "pass_review" | "pass_only" | "off";
+
 export interface Vacancy {
   id: number;
   client_id: number;
@@ -7,6 +9,11 @@ export interface Vacancy {
   active: boolean;
   dispatch_paused: boolean;
   call_slots: string[] | null;
+  notify_emails: string[] | null;
+  notify_on: NotifyOn;
+  sms_enabled: boolean;
+  sms_template: string | null;
+  sms_lead_minutes: number;
   created_at: string;
 }
 
@@ -38,6 +45,7 @@ export interface Call {
   score: number | null;
   decision: string | null;
   score_reasoning: string | null;
+  summary: string | null;
   answers: Record<string, string> | null;
   attempt: number;
   has_recording: boolean;

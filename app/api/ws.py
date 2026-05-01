@@ -71,6 +71,7 @@ async def _finalize_call(
     decision: str | None = None,
     reasoning: str | None = None,
     answers: dict | None = None,
+    summary: str | None = None,
 ) -> None:
     async with async_session() as db:
         call = await db.get(Call, db_call_id)
@@ -89,6 +90,8 @@ async def _finalize_call(
             call.score_reasoning = reasoning
         if answers is not None:
             call.answers = answers
+        if summary is not None:
+            call.summary = summary
         await db.commit()
 
 
@@ -104,7 +107,7 @@ async def _schedule_silent_retry(candidate_id: int, call_id: str | None) -> None
     backoff), при exhausted — соответствующий статус.
     """
     # Импорт здесь — circular import workers→api→workers иначе.
-    from app.workers.tasks import initiate_call
+    from app.workers.tasks import initiate_call, schedule_sms_for_attempt
 
     try:
         async with async_session() as db:
@@ -146,6 +149,12 @@ async def _schedule_silent_retry(candidate_id: int, call_id: str | None) -> None
                 kwargs={"expect_scheduled": True},
                 eta=retry_eta,
             )
+            if candidate.vacancy is not None:
+                schedule_sms_for_attempt(
+                    candidate_id=candidate_id,
+                    vacancy=candidate.vacancy,
+                    eta=retry_eta,
+                )
 
         log.info(
             "ws_silent_retry_scheduled",
@@ -303,8 +312,21 @@ async def call_ws(ws: WebSocket) -> None:
                 decision: str | None = None
                 reasoning: str | None = None
                 answers: dict | None = None
+                summary: str | None = None
+                # Для анонимизации перед LLM нужен candidate.fio.
+                candidate_fio: str | None = None
+                if candidate_id is not None:
+                    try:
+                        async with async_session() as db:
+                            cand = await db.get(Candidate, candidate_id)
+                            if cand is not None:
+                                candidate_fio = cand.fio
+                    except Exception as exc:
+                        log.exception("ws_load_candidate_fio_failed", call_id=call_id, error=str(exc))
                 try:
-                    result = await score_call(session.scenario, transcript)
+                    result = await score_call(
+                        session.scenario, transcript, candidate_fio=candidate_fio,
+                    )
                     raw_score = result.get("score")
                     if isinstance(raw_score, (int, float)):
                         score = float(raw_score)
@@ -317,13 +339,16 @@ async def call_ws(ws: WebSocket) -> None:
                     raw_answers = result.get("answers")
                     if isinstance(raw_answers, dict):
                         answers = raw_answers
+                    raw_summary = result.get("summary")
+                    if isinstance(raw_summary, str):
+                        summary = raw_summary
                 except Exception as exc:
                     log.exception("ws_scoring_failed", call_id=call_id, error=str(exc))
                 try:
                     await _finalize_call(
                         db_call_id, transcript_text,
                         score=score, decision=decision,
-                        reasoning=reasoning, answers=answers,
+                        reasoning=reasoning, answers=answers, summary=summary,
                     )
                 except Exception as exc:
                     log.exception("ws_finalize_failed", call_id=call_id, error=str(exc))
@@ -340,6 +365,18 @@ async def call_ws(ws: WebSocket) -> None:
                                 await db.commit()
                     except Exception as exc:
                         log.exception("ws_done_transition_failed", call_id=call_id, error=str(exc))
+                # HR-уведомление по итогам — задача сама проверит политику
+                # notify_on/notify_emails в Vacancy и no-op'нет, если выключено.
+                if decision in ("pass", "reject", "review"):
+                    try:
+                        from app.workers.tasks import send_call_result_email
+                        send_call_result_email.apply_async(
+                            args=[db_call_id], countdown=5,
+                        )
+                    except Exception as exc:
+                        log.exception(
+                            "ws_enqueue_email_failed", call_id=call_id, error=str(exc),
+                        )
             try:
                 from app.workers.tasks import fetch_recording
                 fetch_recording.apply_async(args=[db_call_id], countdown=30)

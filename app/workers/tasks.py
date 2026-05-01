@@ -12,15 +12,24 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import httpx
 import structlog
 from sqlalchemy import exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.core.scenario import load_scenario
 from app.db.models import Call, Candidate, Vacancy
-from app.storage.yos import upload_recording
+from app.notifications.email import send_email
+from app.notifications.sms import send_sms
+from app.notifications.templates import (
+    render_call_result_email,
+    render_sms_before_call,
+)
+from app.storage.yos import YOS_PREFIX, presign_recording, upload_recording
 from app.telephony.voximplant import get_record_url, originate_call
 from app.workers.celery_app import celery_app
 
@@ -200,6 +209,176 @@ async def _fetch_recording_async(call_db_id: int) -> str | None:
         call.recording_url = yos_uri
         await db.commit()
     return yos_uri
+
+
+def schedule_sms_for_attempt(
+    *,
+    candidate_id: int,
+    vacancy: Vacancy,
+    eta: datetime,
+) -> None:
+    """Поставить SMS-предупреждение за `vacancy.sms_lead_minutes` до eta.
+
+    No-op, если у вакансии sms_enabled=False, или если SMS пришлось бы
+    отправлять «в прошлом» (звонок уже скоро — успеть оповестить нет смысла).
+    Безопасно вызывать в любой точке, где планируется звонок.
+    """
+    from datetime import timedelta
+
+    if not vacancy.sms_enabled:
+        return
+    sms_eta = eta - timedelta(minutes=vacancy.sms_lead_minutes)
+    now = datetime.utcnow()
+    # Если до звонка меньше минуты — SMS уже не успеет/не имеет смысла.
+    if sms_eta <= now + timedelta(seconds=30):
+        return
+    send_sms_before_call.apply_async(
+        args=[candidate_id, eta.isoformat()],
+        eta=sms_eta,
+    )
+
+
+# --- HR-уведомления и SMS ----------------------------------------------------
+
+async def _send_call_result_email_async(call_db_id: int) -> dict:
+    async with _task_session() as db:
+        call = (
+            await db.execute(
+                select(Call)
+                .options(selectinload(Call.candidate))
+                .where(Call.id == call_db_id)
+            )
+        ).scalar_one_or_none()
+        if call is None or call.candidate is None:
+            return {"call_id": call_db_id, "status": "skipped_missing"}
+        candidate = call.candidate
+        vacancy = await db.get(Vacancy, candidate.vacancy_id)
+        if vacancy is None:
+            return {"call_id": call_db_id, "status": "skipped_no_vacancy"}
+
+        notify_on = vacancy.notify_on or "pass_review"
+        recipients = list(vacancy.notify_emails or [])
+        decision = call.decision
+        if not recipients or notify_on == "off":
+            return {"call_id": call_db_id, "status": "skipped_off"}
+        # Фильтр по политике уведомлений.
+        if notify_on == "pass_only" and decision != "pass":
+            return {"call_id": call_db_id, "status": "skipped_policy"}
+        if notify_on == "pass_review" and decision not in ("pass", "review"):
+            return {"call_id": call_db_id, "status": "skipped_policy"}
+
+        recording_url: str | None = None
+        if call.recording_url and call.recording_url.startswith(YOS_PREFIX):
+            try:
+                # Подписанная ссылка на 7 дней — HR удобно открыть из почты.
+                recording_url = presign_recording(
+                    call.recording_url, expires_seconds=7 * 24 * 3600,
+                )
+            except Exception as exc:
+                log.warning("email_recording_presign_failed", call_id=call_db_id, error=str(exc))
+
+        call_card_url = f"{settings.web_app_base_url.rstrip('/')}/calls/{call.id}"
+
+        subject, text_body, html_body = render_call_result_email(
+            fio=candidate.fio,
+            phone=candidate.phone,
+            vacancy_title=vacancy.title,
+            decision=decision,
+            score=call.score,
+            reasoning=call.score_reasoning,
+            summary=call.summary,
+            recording_url=recording_url,
+            call_card_url=call_card_url,
+        )
+
+    await send_email(recipients, subject, text_body, html=html_body)
+    return {
+        "call_id": call_db_id,
+        "status": "sent",
+        "recipients": len(recipients),
+    }
+
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
+def send_call_result_email(self, call_db_id: int) -> dict:
+    """Отправить HR письмо с итогом скрининг-звонка.
+
+    Решение об отправке — внутри (политика notify_on/notify_emails в Vacancy).
+    Так HR может выключить уведомления для конкретной вакансии без правок
+    в каллере.
+    """
+    log.info("task_send_call_result_email", call_db_id=call_db_id)
+    try:
+        return asyncio.run(_send_call_result_email_async(call_db_id))
+    except Exception as exc:
+        log.exception("task_send_call_result_email_failed", call_db_id=call_db_id, error=str(exc))
+        raise self.retry(exc=exc)
+
+
+async def _send_sms_before_call_async(
+    candidate_id: int,
+    expected_iso: str,
+) -> dict:
+    """Идемпотентный гейт: SMS уходит, только если у кандидата всё ещё
+    запланирован звонок именно на ожидаемое время. Если HR обнулил
+    next_attempt_at или попытка уже отстрелялась — задача no-op.
+    """
+    expected = datetime.fromisoformat(expected_iso)
+
+    async with _task_session() as db:
+        cand = await db.get(Candidate, candidate_id)
+        if cand is None or not cand.active:
+            return {"candidate_id": candidate_id, "status": "skipped_inactive"}
+        if cand.next_attempt_at is None:
+            return {"candidate_id": candidate_id, "status": "skipped_no_eta"}
+        # Допускаем рассинхрон в пределах минуты — Celery eta может «дрожать».
+        delta = abs((cand.next_attempt_at - expected).total_seconds())
+        if delta > 60:
+            return {"candidate_id": candidate_id, "status": "skipped_rescheduled"}
+
+        vacancy = await db.get(Vacancy, cand.vacancy_id)
+        if vacancy is None or not vacancy.sms_enabled:
+            return {"candidate_id": candidate_id, "status": "skipped_disabled"}
+
+        # company_name берём из сценария вакансии (lazy-seed из YAML, как ws.py).
+        try:
+            scenario = await load_scenario(vacancy.scenario_name, vacancy.client_id, db)
+        except FileNotFoundError:
+            scenario = {}
+        company = (scenario.get("company_name") or "").strip() or "компания"
+
+        text = render_sms_before_call(
+            vacancy.sms_template,
+            fio=cand.fio,
+            minutes=vacancy.sms_lead_minutes,
+            company=company,
+            vacancy=vacancy.title,
+        )
+        phone = cand.phone
+
+    result = await send_sms(phone, text)
+
+    # Помечаем последнюю pending-попытку отправки SMS на этом кандидате —
+    # для отчётности через Call.sms_sent_at. Но Call ещё не создан (он
+    # рождается в момент start), поэтому пишем ничего — просто логируем.
+    log.info(
+        "sms_before_call_sent",
+        candidate_id=candidate_id,
+        phone=phone,
+        sms_status=result.get("status"),
+    )
+    return {"candidate_id": candidate_id, "status": "sent"}
+
+
+@celery_app.task(bind=True, max_retries=2, default_retry_delay=120)
+def send_sms_before_call(self, candidate_id: int, expected_iso: str) -> dict:
+    """SMS-предупреждение кандидату за N минут до звонка."""
+    log.info("task_send_sms_before_call", candidate_id=candidate_id)
+    try:
+        return asyncio.run(_send_sms_before_call_async(candidate_id, expected_iso))
+    except Exception as exc:
+        log.exception("task_send_sms_before_call_failed", candidate_id=candidate_id, error=str(exc))
+        raise self.retry(exc=exc)
 
 
 @celery_app.task(bind=True, max_retries=6, default_retry_delay=60)

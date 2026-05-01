@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useCreateVacancy, useScenarios, useUpdateVacancy } from "@/api/hooks";
 import { ApiError } from "@/lib/api";
-import type { Vacancy } from "@/api/types";
+import type { NotifyOn, Vacancy } from "@/api/types";
 
 interface Props {
   open: boolean;
@@ -32,6 +32,11 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
   const [scenarioName, setScenarioName] = useState("");
   const [passScore, setPassScore] = useState(6);
   const [callSlotsRaw, setCallSlotsRaw] = useState("");
+  const [notifyEmailsRaw, setNotifyEmailsRaw] = useState("");
+  const [notifyOn, setNotifyOn] = useState<NotifyOn>("pass_review");
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsLeadMinutes, setSmsLeadMinutes] = useState(15);
+  const [smsTemplate, setSmsTemplate] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,14 +45,33 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
       setScenarioName(vacancy.scenario_name);
       setPassScore(vacancy.pass_score);
       setCallSlotsRaw(vacancy.call_slots ? vacancy.call_slots.join(", ") : "");
+      setNotifyEmailsRaw(vacancy.notify_emails ? vacancy.notify_emails.join(", ") : "");
+      setNotifyOn(vacancy.notify_on);
+      setSmsEnabled(vacancy.sms_enabled);
+      setSmsLeadMinutes(vacancy.sms_lead_minutes);
+      setSmsTemplate(vacancy.sms_template ?? "");
     } else if (open && !vacancy) {
       setTitle("");
       setScenarioName(scenarios?.[0]?.slug ?? "");
       setPassScore(6);
       setCallSlotsRaw("");
+      setNotifyEmailsRaw("");
+      setNotifyOn("pass_review");
+      setSmsEnabled(false);
+      setSmsLeadMinutes(15);
+      setSmsTemplate("");
     }
     if (open) setError(null);
   }, [open, vacancy, scenarios]);
+
+  function parseEmails(raw: string): string[] | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    return trimmed
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
 
   /** Парсит строку "10:00, 11:00, 14:00" в массив; пусто → null. */
   function parseSlots(raw: string): string[] | null {
@@ -67,10 +91,20 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
     setError(null);
     try {
       const slots = parseSlots(callSlotsRaw);
+      const emails = parseEmails(notifyEmailsRaw);
       if (editing && vacancy) {
         await update.mutateAsync({
           id: vacancy.id,
-          changes: { title, pass_score: passScore, call_slots: slots },
+          changes: {
+            title,
+            pass_score: passScore,
+            call_slots: slots,
+            notify_emails: emails,
+            notify_on: notifyOn,
+            sms_enabled: smsEnabled,
+            sms_lead_minutes: smsLeadMinutes,
+            sms_template: smsTemplate.trim() ? smsTemplate.trim() : null,
+          },
         });
       } else {
         await create.mutateAsync({
@@ -79,6 +113,8 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
           pass_score: passScore,
           call_slots: slots,
         });
+        // notify/sms-поля для свежей вакансии редактируются после создания
+        // через PATCH — на форме создания не загромождаем.
       }
       onOpenChange(false);
     } catch (err) {
@@ -191,6 +227,38 @@ export function VacancyDialog({ open, onOpenChange, vacancy }: Props) {
               с паузой 30 мин и 2 ч между ними).
             </p>
           </div>
+
+          {editing && (
+            <>
+              <div className="space-y-2 border-t pt-4">
+                <Label htmlFor="notify-emails">Email-уведомления HR</Label>
+                <Input
+                  id="notify-emails"
+                  value={notifyEmailsRaw}
+                  onChange={(e) => setNotifyEmailsRaw(e.target.value)}
+                  placeholder="hr@company.ru, lead@company.ru"
+                  disabled={submitting}
+                />
+                <select
+                  value={notifyOn}
+                  onChange={(e) => setNotifyOn(e.target.value as NotifyOn)}
+                  disabled={submitting}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="off">Не отправлять</option>
+                  <option value="pass_only">Только подходящие (pass)</option>
+                  <option value="pass_review">Подходящие и спорные (по умолч.)</option>
+                  <option value="all">По всем звонкам</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Письмо приходит после скоринга, со ссылкой на карточку и записью.
+                </p>
+              </div>
+
+              {/* SMS-блок скрыт до выбора провайдера (Voximplant sender ID
+                  или sms.ru). Бэкенд готов — достаточно вернуть JSX. */}
+            </>
+          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

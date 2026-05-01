@@ -6,9 +6,11 @@ from datetime import datetime
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import Response as FastAPIResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api._time import iso_utc
 from app.api.deps import get_current_principal
@@ -19,7 +21,8 @@ from app.core.dispatch_window import (
 from app.core.scenario import available_scenarios
 from app.db.models import Call, Candidate, Client, Vacancy
 from app.db.session import get_session
-from app.workers.tasks import initiate_call
+from app.exports.xlsx import build_candidates_xlsx
+from app.workers.tasks import initiate_call, schedule_sms_for_attempt
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -49,6 +52,39 @@ def _validate_call_slots(value: list[str] | None) -> list[str] | None:
     return value
 
 
+_NOTIFY_ON_ALLOWED = {"all", "pass_review", "pass_only", "off"}
+
+
+def _validate_notify_on(value: str) -> str:
+    if value not in _NOTIFY_ON_ALLOWED:
+        raise ValueError(
+            f"notify_on must be one of: {sorted(_NOTIFY_ON_ALLOWED)}"
+        )
+    return value
+
+
+def _validate_notify_emails(value: list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("notify_emails must be a list of email strings")
+    if len(value) > 10:
+        raise ValueError("notify_emails: не более 10 адресов")
+    cleaned: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str):
+            raise ValueError("notify_emails: каждый адрес должен быть строкой")
+        s = raw.strip()
+        if not s:
+            continue
+        # Лёгкая проверка — pydantic EmailStr строже, но мы принимаем
+        # уже отфильтрованный список из UI.
+        if "@" not in s or "." not in s.split("@")[-1]:
+            raise ValueError(f"некорректный email: {s}")
+        cleaned.append(s)
+    return cleaned or None
+
+
 class VacancyCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     scenario_name: str = Field(..., min_length=1, max_length=100)
@@ -63,6 +99,11 @@ class VacancyUpdate(BaseModel):
     active: bool | None = None
     dispatch_paused: bool | None = None
     call_slots: list[str] | None = None
+    notify_emails: list[str] | None = None
+    notify_on: str | None = None
+    sms_enabled: bool | None = None
+    sms_template: str | None = None
+    sms_lead_minutes: int | None = Field(default=None, ge=1, le=720)
 
 
 async def _validate_scenario_name(name: str, client_id: int, session: AsyncSession) -> str:
@@ -85,6 +126,11 @@ class VacancyOut(BaseModel):
     active: bool
     dispatch_paused: bool
     call_slots: list[str] | None = None
+    notify_emails: list[str] | None = None
+    notify_on: str = "pass_review"
+    sms_enabled: bool = False
+    sms_template: str | None = None
+    sms_lead_minutes: int = 15
     created_at: datetime
 
 
@@ -98,6 +144,11 @@ def _to_vacancy_out(v: Vacancy) -> "VacancyOut":
         active=v.active,
         dispatch_paused=v.dispatch_paused,
         call_slots=v.call_slots,
+        notify_emails=v.notify_emails,
+        notify_on=v.notify_on,
+        sms_enabled=v.sms_enabled,
+        sms_template=v.sms_template,
+        sms_lead_minutes=v.sms_lead_minutes,
         created_at=v.created_at,
     )
 
@@ -195,6 +246,23 @@ async def update_vacancy(
             vacancy.call_slots = _validate_call_slots(changes["call_slots"])
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "notify_emails" in changes:
+        try:
+            vacancy.notify_emails = _validate_notify_emails(changes["notify_emails"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "notify_on" in changes:
+        try:
+            vacancy.notify_on = _validate_notify_on(changes["notify_on"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "sms_enabled" in changes:
+        vacancy.sms_enabled = bool(changes["sms_enabled"])
+    if "sms_template" in changes:
+        tpl = changes["sms_template"]
+        vacancy.sms_template = (tpl.strip() if isinstance(tpl, str) and tpl.strip() else None)
+    if "sms_lead_minutes" in changes:
+        vacancy.sms_lead_minutes = int(changes["sms_lead_minutes"])
 
     await session.commit()
     await session.refresh(vacancy)
@@ -388,6 +456,7 @@ async def dispatch_vacancy(
         initiate_call.apply_async(
             args=[c.id], kwargs={"expect_scheduled": True}, eta=eta,
         )
+        schedule_sms_for_attempt(candidate_id=c.id, vacancy=vacancy, eta=eta)
         c.next_attempt_at = eta
         enqueued += 1
 
@@ -409,4 +478,76 @@ async def dispatch_vacancy(
         skipped_already_called=skipped_called,
         skipped_archived=skipped_archived,
         deferred_to=iso_utc(eta) if deferred else None,
+    )
+
+
+@router.get("/{vacancy_id}/export.xlsx")
+async def export_candidates_xlsx(
+    vacancy_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> FastAPIResponse:
+    """Excel-выгрузка кандидатов вакансии: один кандидат — одна строка,
+    данные дополнены последним звонком (score/decision/summary/recording).
+    """
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    cand_rows = (
+        await session.execute(
+            select(Candidate)
+            .options(selectinload(Candidate.calls))
+            .where(Candidate.vacancy_id == vacancy_id)
+            .order_by(Candidate.id.asc())
+        )
+    ).scalars().all()
+
+    rows: list[dict] = []
+    for c in cand_rows:
+        last = max(
+            (call for call in c.calls if call.started_at is not None),
+            key=lambda x: x.started_at,
+            default=None,
+        )
+        recording_ext = None
+        call_card_url = None
+        if last is not None:
+            # Прямая ссылка на нашу прокси-ручку записи (требует cookie-auth).
+            if last.recording_url:
+                recording_ext = f"https://voxscreen.ru/api/v1/calls/{last.id}/recording"
+            call_card_url = f"https://app.voxscreen.ru/calls/{last.id}"
+        rows.append({
+            "fio": c.fio,
+            "phone": c.phone,
+            "source": c.source,
+            "status": c.status,
+            "attempts_count": c.attempts_count,
+            "last_started_at": last.started_at if last else None,
+            "last_duration": last.duration if last else None,
+            "last_score": last.score if last else None,
+            "last_decision": last.decision if last else None,
+            "last_reasoning": last.score_reasoning if last else None,
+            "last_summary": last.summary if last else None,
+            "recording_url": recording_ext,
+            "call_card_url": call_card_url,
+        })
+
+    body = build_candidates_xlsx(rows)
+    safe_title = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in vacancy.title)[:60]
+    filename = f"candidates_{vacancy.id}_{safe_title or 'vacancy'}.xlsx"
+
+    log.info(
+        "vacancy_exported_xlsx",
+        client_id=client.id,
+        vacancy_id=vacancy.id,
+        rows=len(rows),
+    )
+    return FastAPIResponse(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )

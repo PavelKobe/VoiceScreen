@@ -38,6 +38,7 @@ def _serialize_call(call: Call, include_turns: bool = False) -> dict:
         "score": call.score,
         "decision": call.decision,
         "score_reasoning": call.score_reasoning,
+        "summary": call.summary,
         "answers": call.answers,
         "attempt": call.attempt,
         "has_recording": call.recording_url is not None

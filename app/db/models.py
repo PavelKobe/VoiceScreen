@@ -88,6 +88,23 @@ class Vacancy(Base):
     # на глобальные settings.call_window_* + call_retry_backoff_minutes.
     # Длина списка определяет max_attempts для этой вакансии.
     call_slots: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # Email-уведомления HR по итогам звонка.
+    # notify_on: "all" | "pass_review" | "pass_only" | "off"
+    notify_emails: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    notify_on: Mapped[str] = mapped_column(
+        String(20), default="pass_review", server_default="pass_review", nullable=False
+    )
+
+    # SMS-предупреждение кандидата за N минут до запланированного звонка.
+    sms_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    sms_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sms_lead_minutes: Mapped[int] = mapped_column(
+        Integer, default=15, server_default="15", nullable=False
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     client: Mapped["Client"] = relationship(back_populates="vacancies")
@@ -126,6 +143,8 @@ class Call(Base):
     decision: Mapped[str | None] = mapped_column(String(30), nullable=True)
     score_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     answers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sms_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     voximplant_call_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

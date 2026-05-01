@@ -116,6 +116,15 @@ export function CallDetailPage() {
         </Card>
       )}
 
+      {call.summary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Резюме разговора</CardTitle>
+          </CardHeader>
+          <CardContent className="text-base leading-relaxed">{call.summary}</CardContent>
+        </Card>
+      )}
+
       {call.score_reasoning && (
         <Card>
           <CardHeader>

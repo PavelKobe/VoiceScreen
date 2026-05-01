@@ -90,6 +90,53 @@ async def get_record_url(call_session_history_id: str) -> str | None:
     return None
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=5))
+async def send_sms(destination: str, text: str, source: str | None = None) -> dict:
+    """Отправить SMS через Voximplant Management API (SendSms).
+
+    `source` — номер-отправитель в формате без «+» (например "74951086575").
+    По умолчанию берётся `settings.voximplant_from_number` — тот же номер,
+    с которого мы звоним. Чтобы метод заработал, этот номер должен быть
+    куплен в Voximplant и для него должна быть активирована услуга SMS.
+
+    `destination` — номер получателя в международном формате (с «+» или без).
+
+    Длинные сообщения тарифицируются как несколько SMS — Voximplant склеивает
+    их автоматически.
+    """
+    src = (source or settings.voximplant_from_number or "").lstrip("+")
+    if not src:
+        raise RuntimeError("voximplant.send_sms: пустой source (нет VOXIMPLANT_FROM_NUMBER)")
+
+    params = {
+        "account_id": settings.voximplant_account_id,
+        "api_key": settings.voximplant_api_key,
+        "source": src,
+        "destination": destination.lstrip("+"),
+        "sms_body": text,
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(f"{VOXIMPLANT_API_BASE}/SendSmsMessage/", params=params)
+        response.raise_for_status()
+        result = response.json()
+
+    if result.get("error"):
+        # Самые типичные коды: 401 (невалидные ключи), 488 (SMS не подключены
+        # на номер), 491 (некорректный destination). Бросаем — caller (Celery)
+        # сделает retry для сетевых, или зафейлится для постоянных.
+        raise RuntimeError(f"Voximplant SendSmsMessage error: {result['error']}")
+
+    log.info(
+        "voximplant_sms_sent",
+        to=destination,
+        source=src,
+        message_id=result.get("message_id"),
+        fragments=result.get("fragments_count"),
+    )
+    return result
+
+
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=5))
 async def hangup_call(call_session_history_id: str) -> None:
     """Stop an active VoxEngine session.

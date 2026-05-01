@@ -83,7 +83,17 @@ export function useUpdateVacancy() {
       changes: Partial<
         Pick<
           Vacancy,
-          "title" | "scenario_name" | "pass_score" | "active" | "dispatch_paused" | "call_slots"
+          | "title"
+          | "scenario_name"
+          | "pass_score"
+          | "active"
+          | "dispatch_paused"
+          | "call_slots"
+          | "notify_emails"
+          | "notify_on"
+          | "sms_enabled"
+          | "sms_template"
+          | "sms_lead_minutes"
         >
       >;
     }) => api<Vacancy>(`/vacancies/${id}`, { method: "PATCH", body: changes }),

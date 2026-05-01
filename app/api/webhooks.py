@@ -55,7 +55,7 @@ async def call_failed(request: Request) -> dict:
         return {"status": "no_candidate"}
 
     # Импорт здесь, чтобы избежать циклической зависимости api → workers → api.
-    from app.workers.tasks import initiate_call
+    from app.workers.tasks import initiate_call, schedule_sms_for_attempt
 
     async with async_session() as db:
         # Загружаем кандидата вместе с вакансией — нужны её call_slots
@@ -112,6 +112,12 @@ async def call_failed(request: Request) -> dict:
             kwargs={"expect_scheduled": True},
             eta=retry_eta,
         )
+        if candidate.vacancy is not None:
+            schedule_sms_for_attempt(
+                candidate_id=int(candidate_id),
+                vacancy=candidate.vacancy,
+                eta=retry_eta,
+            )
 
     log.info(
         "call_failed_recorded",

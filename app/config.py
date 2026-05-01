@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     call_max_attempts: int = 3
     call_retry_backoff_minutes: list[int] = [30, 120, 360]
 
+    # SMTP (HR-уведомления по итогам звонка). Yandex 360: smtp.yandex.ru:465 SSL.
+    smtp_host: str = "smtp.yandex.ru"
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@voxscreen.ru"
+    smtp_use_ssl: bool = True
+    # Базовый URL веб-кабинета — используется в письмах для ссылки на CallDetail.
+    web_app_base_url: str = "https://app.voxscreen.ru"
+
+    # SMS-предупреждение кандидата идёт через Voximplant SendSmsMessage —
+    # с того же номера voximplant_from_number, с которого мы звоним.
+    # Отдельных секретов не нужно: используем уже настроенные
+    # voximplant_account_id / voximplant_api_key.
+
     # Web session auth (SPA на app.voxscreen.ru)
     secret_key: str = ""  # SessionMiddleware HMAC; пустое значение => session-auth отключён
     cookie_domain: str = ".voxscreen.ru"

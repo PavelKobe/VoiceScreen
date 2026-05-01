@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   Loader2,
   Pause,
   PauseCircle,
@@ -114,6 +115,17 @@ export function VacancyDetailPage() {
                 {vacancy.dispatch_paused ? "Возобновить" : "Приостановить"}
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              title="Скачать XLSX со всеми кандидатами и итогами их последнего звонка"
+            >
+              <a href={`/api/v1/vacancies/${vacancy.id}/export.xlsx`}>
+                <Download className="h-4 w-4" />
+                Excel
+              </a>
+            </Button>
             {vacancy.active && (
               <Button
                 onClick={() => setDispatchOpen(true)}
