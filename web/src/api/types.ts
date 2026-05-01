@@ -140,6 +140,15 @@ export interface DispatchResult {
   deferred_to: string | null;
 }
 
+export interface DispatchPreview {
+  vacancy_id: number;
+  candidates_to_dispatch: number;
+  skipped_already_called: number;
+  skipped_archived: number;
+  attempt_etas: string[];        // ISO UTC времена попыток (1-я + ретраи)
+  uses_call_slots: boolean;
+}
+
 export interface DashboardData {
   candidates_total: number;
   calls_total: number;

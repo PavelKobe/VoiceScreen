@@ -10,6 +10,7 @@ import type {
   CandidatesList,
   CandidateUpdatePayload,
   DashboardData,
+  DispatchPreview,
   DispatchResult,
   Scenario,
   ScenarioBrief,
@@ -109,6 +110,16 @@ export function useDeactivateVacancy() {
   return useMutation({
     mutationFn: (id: number) => api<void>(`/vacancies/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["vacancies"] }),
+  });
+}
+
+export function useDispatchPreview(id: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["dispatch-preview", id],
+    enabled: id !== null && enabled,
+    queryFn: () => api<DispatchPreview>(`/vacancies/${id}/dispatch_preview`),
+    staleTime: 0,        // всегда свежий расчёт при открытии модалки
+    refetchOnWindowFocus: false,
   });
 }
 

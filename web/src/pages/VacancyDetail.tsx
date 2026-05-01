@@ -20,18 +20,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   useCandidates,
+  useDispatchPreview,
   useDispatchVacancy,
   useUpdateVacancy,
   useVacancy,
   useVacancyReport,
 } from "@/api/hooks";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { decisionLabel, decisionVariant } from "@/lib/format";
 import { CallsTable } from "@/components/CallsTable";
 import { CandidatesTable } from "@/components/CandidatesTable";
 import { CandidatesUpload } from "@/components/CandidatesUpload";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export function VacancyDetailPage() {
   const params = useParams<{ id: string }>();
@@ -44,6 +53,7 @@ export function VacancyDetailPage() {
   const updateVacancy = useUpdateVacancy();
 
   const [dispatchOpen, setDispatchOpen] = useState(false);
+  const preview = useDispatchPreview(id, dispatchOpen);
 
   // Кандидаты для bulk — все активные. Бэк сам пропустит финализированных
   // (decision in pass/reject/review), exhausted'ов и тех, кто уже исчерпал
@@ -226,35 +236,142 @@ export function VacancyDetailPage() {
         </TabsContent>
       </Tabs>
 
-      <ConfirmDialog
-        open={dispatchOpen}
-        onOpenChange={setDispatchOpen}
-        title={`Запустить обзвон по ${dispatchableCount} кандидатам?`}
-        description="В очередь будут поставлены все активные кандидаты. Бэк автоматически пропустит уже обзвонённых (с финальным результатом) и тех, кто исчерпал попытки. Если сейчас вне окна 9:00–21:00 МСК — звонки уйдут утром."
-        confirmLabel="Запустить"
-        pending={dispatch.isPending}
-        onConfirm={async () => {
-          if (!id) return;
-          try {
-            const result = await dispatch.mutateAsync(id);
-            const base = `Поставлено в очередь: ${result.enqueued}. Пропущено: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`;
-            const deferred = result.enqueued > 0 && result.deferred_to
-              ? ` Старт обзвона: ${new Date(result.deferred_to).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}.`
-              : "";
-            if (result.enqueued > 0) {
-              toast.success("Обзвон запущен", { description: base + deferred });
-            } else {
-              toast.message("Никого не поставили", { description: base });
-            }
-            setDispatchOpen(false);
-          } catch (err) {
-            const detail = err instanceof ApiError && typeof err.detail === "string"
-              ? err.detail
-              : "Не удалось запустить обзвон";
-            toast.error("Ошибка", { description: detail });
-          }
-        }}
-      />
+      <Dialog open={dispatchOpen} onOpenChange={setDispatchOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Запустить обзвон по вакансии?</DialogTitle>
+            <DialogDescription>
+              Превью на основе текущего времени и расписания вакансии. ETA ретраев
+              приблизительные — реальное время зависит от того, когда завершится
+              предыдущая попытка.
+            </DialogDescription>
+          </DialogHeader>
+
+          {preview.isLoading && (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {preview.data && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-3 gap-2 rounded-md border bg-muted/30 p-3">
+                <Stat
+                  label="В очередь"
+                  value={preview.data.candidates_to_dispatch}
+                  highlight
+                />
+                <Stat
+                  label="Пропустим"
+                  value={preview.data.skipped_already_called}
+                />
+                <Stat label="В архиве" value={preview.data.skipped_archived} />
+              </div>
+
+              <div>
+                <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Когда пойдут звонки (МСК)
+                </div>
+                {preview.data.attempt_etas.length === 0 ? (
+                  <div className="rounded-md border bg-card p-3 text-muted-foreground">
+                    Нет запланированных попыток.
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {preview.data.attempt_etas.map((iso, i) => (
+                      <li
+                        key={iso + i}
+                        className="flex items-baseline justify-between gap-3 rounded-md border bg-card px-3 py-2"
+                      >
+                        <span className="text-muted-foreground">
+                          {i === 0 ? "1-я попытка" : `Ретрай №${i}`}
+                        </span>
+                        <span className="font-mono">{formatDateTime(iso)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!preview.data.uses_call_slots && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    График у вакансии не задан — используется окно 9:00–21:00 МСК
+                    и backoff из настроек (по умолчанию 30 мин → 2 ч → 6 ч). Чтобы
+                    звонить в фиксированные часы, задайте «График обзвона» в
+                    редакторе вакансии.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDispatchOpen(false)}
+              disabled={dispatch.isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              disabled={
+                dispatch.isPending ||
+                !preview.data ||
+                preview.data.candidates_to_dispatch === 0
+              }
+              onClick={async () => {
+                if (!id) return;
+                try {
+                  const result = await dispatch.mutateAsync(id);
+                  const base = `Поставлено в очередь: ${result.enqueued}. Пропущено: ${result.skipped_already_called}. Архивных: ${result.skipped_archived}.`;
+                  const deferred =
+                    result.enqueued > 0 && result.deferred_to
+                      ? ` Старт обзвона: ${new Date(result.deferred_to).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}.`
+                      : "";
+                  if (result.enqueued > 0) {
+                    toast.success("Обзвон запущен", { description: base + deferred });
+                  } else {
+                    toast.message("Никого не поставили", { description: base });
+                  }
+                  setDispatchOpen(false);
+                } catch (err) {
+                  const detail =
+                    err instanceof ApiError && typeof err.detail === "string"
+                      ? err.detail
+                      : "Не удалось запустить обзвон";
+                  toast.error("Ошибка", { description: detail });
+                }
+              }}
+            >
+              {dispatch.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Запустить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="text-center">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div
+        className={
+          highlight
+            ? "text-xl font-semibold tabular-nums text-foreground"
+            : "text-xl font-semibold tabular-nums text-muted-foreground"
+        }
+      >
+        {value}
+      </div>
     </div>
   );
 }

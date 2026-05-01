@@ -375,6 +375,91 @@ class DispatchResult(BaseModel):
     deferred_to: str | None = None
 
 
+class DispatchPreview(BaseModel):
+    vacancy_id: int
+    candidates_to_dispatch: int   # сколько реально уйдёт в очередь
+    skipped_already_called: int
+    skipped_archived: int
+    attempt_etas: list[str]       # ISO UTC; первая = «сейчас если в окне», далее ретраи
+    uses_call_slots: bool
+
+
+@router.get("/{vacancy_id}/dispatch_preview", response_model=DispatchPreview)
+async def dispatch_preview(
+    vacancy_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> DispatchPreview:
+    """Сухой прогон bulk-обзвона: считает сколько кандидатов уйдут в
+    очередь и какие ETA получат первая + автоматические retry-попытки.
+    Ничего в БД не меняет, в Celery задач не ставит.
+    """
+    vacancy = await session.get(Vacancy, vacancy_id)
+    if vacancy is None or vacancy.client_id != client.id:
+        raise HTTPException(status_code=404, detail="vacancy not found")
+
+    cand_rows = (
+        await session.execute(
+            select(Candidate).where(Candidate.vacancy_id == vacancy_id)
+        )
+    ).scalars().all()
+    finalized_rows = (
+        await session.execute(
+            select(Call.candidate_id)
+            .join(Candidate, Call.candidate_id == Candidate.id)
+            .where(
+                Candidate.vacancy_id == vacancy_id,
+                Call.decision.in_(("pass", "reject", "review")),
+            )
+            .distinct()
+        )
+    ).scalars().all()
+    finalized_set = set(finalized_rows)
+
+    max_attempts = effective_max_attempts(vacancy.call_slots)
+    skipped_called = 0
+    skipped_archived = 0
+    will_dispatch = 0
+    for c in cand_rows:
+        if not c.active:
+            skipped_archived += 1
+            continue
+        if (
+            c.status in ("exhausted", "done", "in_progress")
+            or c.next_attempt_at is not None
+            or c.id in finalized_set
+            or c.attempts_count >= max_attempts
+        ):
+            skipped_called += 1
+            continue
+        will_dispatch += 1
+
+    # Считаем времена попыток: первая + до max_attempts ретраев. Каждая
+    # последующая — на основе предыдущей (so retry idx считается верно).
+    now = datetime.utcnow()
+    attempt_etas: list[datetime] = []
+    last = now
+    for attempt_idx in range(max_attempts):
+        eta = schedule_next_attempt(
+            vacancy.call_slots,
+            attempts_count=attempt_idx,
+            after_utc=last if attempt_idx == 0 else last,
+        )
+        if eta is None:
+            break
+        attempt_etas.append(eta)
+        last = eta  # следующий retry считается ОТ времени предыдущей попытки
+
+    return DispatchPreview(
+        vacancy_id=vacancy_id,
+        candidates_to_dispatch=will_dispatch,
+        skipped_already_called=skipped_called,
+        skipped_archived=skipped_archived,
+        attempt_etas=[iso_utc(e) or "" for e in attempt_etas],
+        uses_call_slots=bool(vacancy.call_slots),
+    )
+
+
 @router.post("/{vacancy_id}/dispatch", response_model=DispatchResult, status_code=202)
 async def dispatch_vacancy(
     vacancy_id: int,
