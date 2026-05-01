@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   useCandidates,
   useDispatchPreview,
@@ -54,6 +56,43 @@ export function VacancyDetailPage() {
 
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const preview = useDispatchPreview(id, dispatchOpen);
+  const qc = useQueryClient();
+
+  // Inline-редактор графика обзвона прямо в модалке
+  const [editingSlots, setEditingSlots] = useState(false);
+  const [slotsRaw, setSlotsRaw] = useState("");
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  useEffect(() => {
+    if (dispatchOpen && vacancy) {
+      setSlotsRaw(vacancy.call_slots ? vacancy.call_slots.join(", ") : "");
+      setEditingSlots(false);
+      setSlotsError(null);
+    }
+  }, [dispatchOpen, vacancy]);
+
+  async function saveSlots() {
+    if (!vacancy) return;
+    setSlotsError(null);
+    const trimmed = slotsRaw.trim();
+    const parsed: string[] | null = trimmed
+      ? trimmed.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
+      : null;
+    try {
+      await updateVacancy.mutateAsync({
+        id: vacancy.id,
+        changes: { call_slots: parsed },
+      });
+      setEditingSlots(false);
+      // Перезагрузим превью с новыми ETA
+      await qc.invalidateQueries({ queryKey: ["dispatch-preview", vacancy.id] });
+    } catch (err) {
+      const detail =
+        err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : "Не удалось сохранить график";
+      setSlotsError(detail);
+    }
+  }
 
   // Кандидаты для bulk — все активные. Бэк сам пропустит финализированных
   // (decision in pass/reject/review), exhausted'ов и тех, кто уже исчерпал
@@ -291,15 +330,102 @@ export function VacancyDetailPage() {
                     ))}
                   </ul>
                 )}
-                {!preview.data.uses_call_slots && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    График у вакансии не задан — используется окно 9:00–21:00 МСК
-                    и backoff из настроек (по умолчанию 30 мин → 2 ч → 6 ч). Чтобы
-                    звонить в фиксированные часы, задайте «График обзвона» в
-                    редакторе вакансии.
-                  </p>
+              </div>
+
+              <div className="rounded-md border bg-card p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    График обзвона
+                  </div>
+                  {!editingSlots && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingSlots(true)}
+                      disabled={updateVacancy.isPending}
+                    >
+                      Изменить
+                    </Button>
+                  )}
+                </div>
+
+                {editingSlots ? (
+                  <div className="mt-2 space-y-2">
+                    <Input
+                      value={slotsRaw}
+                      onChange={(e) => setSlotsRaw(e.target.value)}
+                      placeholder="10:00, 11:00, 14:00 (или пусто)"
+                      className="font-mono"
+                      disabled={updateVacancy.isPending}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Время попыток в МСК через запятую: 1-я попытка → 1-й слот,
+                      2-я → 2-й и т.д. Количество слотов = максимум попыток.
+                      Пусто — окно 9:00–21:00 + backoff 30 мин → 2 ч → 6 ч.
+                    </p>
+                    {slotsError && (
+                      <p className="text-xs text-destructive">{slotsError}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void saveSlots()}
+                        disabled={updateVacancy.isPending}
+                      >
+                        {updateVacancy.isPending && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
+                        Сохранить
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingSlots(false);
+                          setSlotsRaw(
+                            vacancy.call_slots ? vacancy.call_slots.join(", ") : "",
+                          );
+                          setSlotsError(null);
+                        }}
+                        disabled={updateVacancy.isPending}
+                      >
+                        Отмена
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-sm">
+                    {vacancy.call_slots && vacancy.call_slots.length > 0 ? (
+                      <span className="font-mono">
+                        {vacancy.call_slots.join(", ")}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Не задан — звоним сразу в окне 9:00–21:00 МСК с backoff 30 мин → 2 ч → 6 ч
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
+
+              {preview.data.candidates_to_dispatch === 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  Сейчас никого не поставим в очередь.{" "}
+                  {preview.data.skipped_already_called > 0 && (
+                    <>
+                      {preview.data.skipped_already_called} кандидат(ов) либо уже
+                      обзвонены (с финальным результатом), либо уже стоят в
+                      запланированной очереди от прошлого нажатия, либо исчерпали
+                      попытки.{" "}
+                    </>
+                  )}
+                  Если хочешь срочно — открой карточку конкретного кандидата и
+                  нажми «Позвонить» (это сбросит счётчик и позвонит сейчас).
+                </div>
+              )}
             </div>
           )}
 
