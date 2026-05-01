@@ -76,6 +76,7 @@ export function CandidatesTable({ vacancyId }: Props) {
 
   const [editTarget, setEditTarget] = useState<CandidateRow | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<CandidateRow | null>(null);
+  const [callConfirmTarget, setCallConfirmTarget] = useState<CandidateRow | null>(null);
   const [pendingCalls, setPendingCalls] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] =
@@ -297,7 +298,17 @@ export function CandidatesTable({ vacancyId }: Props) {
                             Изменить
                           </DropdownMenuItem>
                           {c.active && c.status !== "in_progress" && (
-                            <DropdownMenuItem onSelect={() => void handleCallNow(c)}>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                const needConfirm =
+                                  c.attempts_count > 0 || c.next_attempt_at !== null;
+                                if (needConfirm) {
+                                  setCallConfirmTarget(c);
+                                } else {
+                                  void handleCallNow(c);
+                                }
+                              }}
+                            >
                               <PhoneCall className="h-4 w-4" />
                               Позвонить
                             </DropdownMenuItem>
@@ -336,6 +347,24 @@ export function CandidatesTable({ vacancyId }: Props) {
         open={editTarget !== null}
         onOpenChange={(o) => !o && setEditTarget(null)}
         candidate={editTarget}
+      />
+
+      <ConfirmDialog
+        open={callConfirmTarget !== null}
+        onOpenChange={(o) => !o && setCallConfirmTarget(null)}
+        title={`Позвонить ${callConfirmTarget?.fio ?? "кандидату"} сейчас?`}
+        description={
+          callConfirmTarget?.next_attempt_at
+            ? `У кандидата стоит запланированный обзвон. Если позвонить сейчас — расписание сбросится, попытки начнутся заново. Если кандидат не ответит, ретраи поставятся автоматически.`
+            : `Кандидат уже звонил ${callConfirmTarget?.attempts_count ?? 0} раз(а). Если позвонить сейчас — счётчик сбросится и он начнёт скрининг с нуля.`
+        }
+        confirmLabel="Позвонить"
+        pending={callNowMutation.isPending}
+        onConfirm={async () => {
+          if (!callConfirmTarget) return;
+          await handleCallNow(callConfirmTarget);
+          setCallConfirmTarget(null);
+        }}
       />
 
       <ConfirmDialog

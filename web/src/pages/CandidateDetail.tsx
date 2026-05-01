@@ -49,6 +49,7 @@ export function CandidateDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [callConfirmOpen, setCallConfirmOpen] = useState(false);
 
   if (isLoading || !data) {
     return (
@@ -122,13 +123,21 @@ export function CandidateDetailPage() {
           </Button>
           <Button
             size="sm"
-            onClick={() => void handleCallNow()}
+            onClick={() => {
+              const needConfirm =
+                data.attempts_count > 0 || data.next_attempt_at !== null;
+              if (needConfirm) {
+                setCallConfirmOpen(true);
+              } else {
+                void handleCallNow();
+              }
+            }}
             disabled={
               !data.active ||
               data.status === "in_progress" ||
               callNowMutation.isPending
             }
-            title="Сбрасывает счётчик попыток и шлёт звонок немедленно. Для запланированного обзвона по графику используйте «Запустить обзвон» на вакансии."
+            title="Звонок уйдёт немедленно. Если у кандидата уже были попытки или стоит запланированный обзвон — попросим подтверждение."
           >
             {callNowMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -258,6 +267,25 @@ export function CandidateDetailPage() {
         open={editOpen}
         onOpenChange={setEditOpen}
         candidate={candidateRow}
+      />
+
+      <ConfirmDialog
+        open={callConfirmOpen}
+        onOpenChange={setCallConfirmOpen}
+        title="Позвонить сейчас?"
+        description={
+          data.next_attempt_at
+            ? `У кандидата стоит запланированный обзвон (${formatDateTime(
+                data.next_attempt_at,
+              )}). Если позвонить сейчас — расписание сбросится, попытки начнутся заново. Если кандидат не ответит, ретраи поставятся автоматически по слотам вакансии.`
+            : `Кандидат уже звонил ${data.attempts_count} раз(а). Если позвонить сейчас — счётчик сбросится и он начнёт скрининг с нуля.`
+        }
+        confirmLabel="Позвонить"
+        pending={callNowMutation.isPending}
+        onConfirm={async () => {
+          await handleCallNow();
+          setCallConfirmOpen(false);
+        }}
       />
 
       <ConfirmDialog
