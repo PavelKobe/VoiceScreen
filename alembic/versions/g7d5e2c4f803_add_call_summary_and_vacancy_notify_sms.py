@@ -1,17 +1,21 @@
 """add call summary, vacancy notify_emails/notify_on, vacancy sms_* fields
 
+Также сливает две болтавшиеся головы (`f6c4a9b50d12` — основная ветка
+со scenarios; `d0a9e145c267` — старая ветка с vacancy.call_slots,
+которая исторически не была подцеплена к основной линии).
+
 Revision ID: g7d5e2c4f803
-Revises: f6c4a9b50d12
+Revises: f6c4a9b50d12, d0a9e145c267
 Create Date: 2026-05-01 12:00:00.000000
 """
-from typing import Sequence, Union
+from typing import Sequence, Tuple, Union
 
 import sqlalchemy as sa
 from alembic import op
 
 
 revision: str = 'g7d5e2c4f803'
-down_revision: Union[str, None] = 'f6c4a9b50d12'
+down_revision: Union[str, Tuple[str, ...], None] = ('f6c4a9b50d12', 'd0a9e145c267')
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
