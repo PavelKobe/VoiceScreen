@@ -6,6 +6,7 @@ import {
   Loader2,
   Pencil,
   PhoneCall,
+  PhoneForwarded,
   PowerOff,
   RotateCcw,
 } from "lucide-react";
@@ -27,6 +28,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useArchiveCandidate,
   useCallCandidate,
+  useCallCandidateNow,
   useCandidate,
   useResetCandidateAttempts,
   useUpdateCandidate,
@@ -42,6 +44,7 @@ export function CandidateDetailPage() {
 
   const { data, isLoading } = useCandidate(id);
   const callMutation = useCallCandidate();
+  const callNowMutation = useCallCandidateNow();
   const archive = useArchiveCandidate();
   const update = useUpdateCandidate();
   const resetAttempts = useResetCandidateAttempts();
@@ -65,6 +68,21 @@ export function CandidateDetailPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         toast.error(typeof err.detail === "string" ? err.detail : "Не удалось поставить");
+      } else {
+        toast.error("Ошибка сети");
+      }
+    }
+  }
+
+  async function handleCallNow() {
+    try {
+      await callNowMutation.mutateAsync(data!.id);
+      toast.success("Звоним сейчас", {
+        description: "Счётчик попыток сброшен, задача ушла worker'у",
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error(typeof err.detail === "string" ? err.detail : "Не удалось");
       } else {
         toast.error("Ошибка сети");
       }
@@ -130,6 +148,23 @@ export function CandidateDetailPage() {
               <PhoneCall className="h-4 w-4" />
             )}
             Позвонить
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void handleCallNow()}
+            disabled={
+              !data.active ||
+              data.status === "in_progress" ||
+              callNowMutation.isPending
+            }
+            title="Сбросить счётчик попыток и позвонить немедленно (для тестов / ручных перезвонов)"
+          >
+            {callNowMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <PhoneForwarded className="h-4 w-4" />
+            )}
+            Позвонить сейчас
           </Button>
           {data.active &&
             data.status !== "in_progress" &&

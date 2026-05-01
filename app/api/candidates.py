@@ -283,6 +283,51 @@ async def call_candidate(
     return {"candidate_id": candidate.id, "task_id": task.id}
 
 
+@router.post("/{candidate_id}/call_now", status_code=202)
+async def call_candidate_now(
+    candidate_id: int,
+    client: Client = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Force-call: сбрасывает счётчик попыток и обзвонивает немедленно,
+    игнорируя предыдущие done/exhausted/исчерпанные попытки.
+
+    Полезно для тестов и ручных доpр-обзвонов HR'ом, когда обычный гейт
+    блокирует кандидата (например, кандидат уже прошёл скрининг и нужно
+    перезвонить ещё раз). Если звонок прямо сейчас идёт — возвращает 409.
+    """
+    stmt = (
+        select(Candidate)
+        .join(Vacancy, Candidate.vacancy_id == Vacancy.id)
+        .where(Candidate.id == candidate_id, Vacancy.client_id == client.id)
+    )
+    candidate = (await session.execute(stmt)).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    if not candidate.active:
+        raise HTTPException(
+            status_code=400, detail="кандидат архивирован — восстановите его перед обзвоном"
+        )
+    if candidate.status == "in_progress":
+        raise HTTPException(
+            status_code=409, detail="звонок уже идёт прямо сейчас — дождитесь финиша",
+        )
+
+    candidate.status = "pending"
+    candidate.attempts_count = 0
+    candidate.next_attempt_at = None
+    await session.commit()
+
+    task = initiate_call.delay(candidate.id)
+    log.info(
+        "candidate_call_now",
+        client_id=client.id,
+        candidate_id=candidate.id,
+        task_id=task.id,
+    )
+    return {"candidate_id": candidate.id, "task_id": task.id, "forced": True}
+
+
 class CandidateUpdate(BaseModel):
     fio: str | None = Field(default=None, min_length=1, max_length=255)
     phone: str | None = Field(default=None, min_length=4, max_length=20)

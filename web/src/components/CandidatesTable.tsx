@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneCall,
+  PhoneForwarded,
   PowerOff,
   Search,
   X,
@@ -34,6 +35,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useArchiveCandidate,
   useCallCandidate,
+  useCallCandidateNow,
   useCandidates,
 } from "@/api/hooks";
 import { toast } from "sonner";
@@ -72,6 +74,7 @@ export function CandidatesTable({ vacancyId }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const { data, isLoading } = useCandidates(vacancyId, { includeArchived: showArchived });
   const callMutation = useCallCandidate();
+  const callNowMutation = useCallCandidateNow();
   const archive = useArchiveCandidate();
 
   const [editTarget, setEditTarget] = useState<CandidateRow | null>(null);
@@ -91,6 +94,28 @@ export function CandidatesTable({ vacancyId }: Props) {
         err instanceof ApiError && typeof err.detail === "string"
           ? err.detail
           : "Не удалось поставить звонок";
+      toast.error(detail);
+    } finally {
+      setPendingCalls((prev) => {
+        const next = new Set(prev);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleCallNow(candidate: CandidateRow) {
+    setPendingCalls((prev) => new Set(prev).add(candidate.id));
+    try {
+      await callNowMutation.mutateAsync(candidate.id);
+      toast.success("Звоним сейчас", {
+        description: "Счётчик попыток сброшен, задача ушла worker'у",
+      });
+    } catch (err) {
+      const detail =
+        err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : "Не удалось";
       toast.error(detail);
     } finally {
       setPendingCalls((prev) => {
@@ -298,6 +323,12 @@ export function CandidatesTable({ vacancyId }: Props) {
                             <DropdownMenuItem onSelect={() => void handleCall(c)}>
                               <PhoneCall className="h-4 w-4" />
                               Позвонить
+                            </DropdownMenuItem>
+                          )}
+                          {c.active && c.status !== "in_progress" && (
+                            <DropdownMenuItem onSelect={() => void handleCallNow(c)}>
+                              <PhoneForwarded className="h-4 w-4" />
+                              Позвонить сейчас (force)
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />

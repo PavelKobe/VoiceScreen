@@ -219,6 +219,22 @@ export function useCallCandidate() {
   });
 }
 
+export function useCallCandidateNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (candidateId: number) =>
+      api<CallEnqueued & { forced: boolean }>(
+        `/candidates/${candidateId}/call_now`,
+        { method: "POST" },
+      ),
+    onSuccess: (_, candidateId) => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["candidate", candidateId] });
+      qc.invalidateQueries({ queryKey: ["calls"] });
+    },
+  });
+}
+
 export function useUploadCandidates() {
   const qc = useQueryClient();
   return useMutation({
