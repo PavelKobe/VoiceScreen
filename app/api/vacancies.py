@@ -534,8 +534,17 @@ async def export_candidates_xlsx(
         })
 
     body = build_candidates_xlsx(rows)
-    safe_title = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in vacancy.title)[:60]
-    filename = f"candidates_{vacancy.id}_{safe_title or 'vacancy'}.xlsx"
+    # ASCII-fallback (для старых клиентов) + UTF-8 версия по RFC 5987 для
+    # кириллических названий вакансий. Без filename*=UTF-8'' Starlette
+    # пытается закодировать имя файла в latin-1 и падает на кириллице.
+    from urllib.parse import quote
+    ascii_title = "".join(
+        ch if (ch.isascii() and (ch.isalnum() or ch in "-_."))
+        else "_" for ch in vacancy.title
+    )[:60].strip("_") or "vacancy"
+    ascii_filename = f"candidates_{vacancy.id}_{ascii_title}.xlsx"
+    utf8_filename = f"candidates_{vacancy.id}_{vacancy.title}.xlsx"
+    encoded_utf8 = quote(utf8_filename, safe="")
 
     log.info(
         "vacancy_exported_xlsx",
@@ -547,7 +556,10 @@ async def export_candidates_xlsx(
         content=body,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_filename}"; '
+                f"filename*=UTF-8''{encoded_utf8}"
+            ),
             "Cache-Control": "no-store",
         },
     )
